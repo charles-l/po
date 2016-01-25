@@ -207,6 +207,17 @@ void car(state_t *s) {
     }
 }
 
+void cdr(state_t *s) {
+    assert((s->sp - 1)->type == CONS);
+    if(TOPATOM->cdr->type == NUM) {
+        PUSHTOK(.type = NUM, .num = TOPATOM->cdr->num);
+    } else if (TOPATOM->cdr->type == SYM) {
+        PUSHTOK(.type = SYM, .sym = TOPATOM->cdr->sym);
+    } else if (TOPATOM->cdr->type == CONS) {
+        PUSHTOK(.type = CONS, .car = TOPATOM->cdr->car, .cdr = TOPATOM->cdr->cdr);
+    }
+}
+
 #define CASE(en, b) \
     case en: \
         b; \
@@ -229,6 +240,7 @@ void run(state_t *s, char *prog) {
             CASE(FJUMP, fjump  (s, &c));
             CASE(FFI,   fficall(s, &c));
             CASE(CAR,   car    (s));
+            CASE(CDR,   cdr    (s));
             CASE(POP,   pop    (s));
             default:
                 fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
