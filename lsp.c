@@ -76,7 +76,7 @@ void dump_stack(stack_t *s) {
                 printf("0x%x\t%i\n", o, o->num);
                 break;
             case CONS:
-                printf("0x%x\t(%p, %p)\n", o, o->car, o->cdr);
+                printf("0x%x\t(%s, %p)\n", o, o->car->atom, o->cdr);
                 break;
         }
     }
@@ -111,7 +111,7 @@ atom_t mkcons(stack_t *s, char **prog) {
     atom_t *c, *d;
     MEMDUP(c, &a, sizeof(atom_t));
     MEMDUP(d, &b, sizeof(atom_t));
-    atom_t t = {.type = CONS, .car = &a, .cdr = &b};
+    atom_t t = {.type = CONS, .car = c, .cdr = d};
     return t;
 }
 
