@@ -5,14 +5,7 @@
 
 #define STACK_SIZE 1024
 
-// check for 64 bit machine
-#ifdef X64
-#define stackv uint64_t
-#else
-#define stackv uint32_t
-#endif
-
-// TODO: grow stack on demand
+// TODO: grow stack on demand (maybe?)
 
 typedef enum opcode {
     NOP   = 0x0,
@@ -23,71 +16,109 @@ typedef enum opcode {
     EOP   = 0x7f // end of program
 } opcode;
 
+typedef enum a_type {
+    ATOM,
+    NUM,
+    CONS
+} a_type;
+
+typedef struct atom {
+    a_type type;
+    union {
+        int num;
+        char *atom;
+        struct {
+            struct atom *first, *rest;
+        };
+    };
+} atom_t;
+
 typedef struct stack {
-    stackv *root;
+    atom_t *atoms;
+    atom_t *h;
     size_t size;
-    stackv *sp; // stack pointer
-    stackv *fp; // frame pointer
 } stack_t;
 
 stack_t *init_stack() {
     stack_t *s = malloc(sizeof(stack_t));
     s->size = STACK_SIZE;
-    s->root = malloc(s->size);
-    s->fp = s->root + s->size;
-    s->sp = s->fp;
+    s->atoms = malloc(sizeof(atom_t) * s->size);
+    s->h = s->atoms;
     return s;
 }
 
-void push(stack_t *s, stackv v) {
-    *(s->sp) = v;
-    s->sp--;
+void destroy_stack(stack_t *s) {
+    // TODO: delete malloced mem from atoms
+    free(s->atoms);
+    free(s);
+    s = NULL;
 }
 
-stackv pop(stack_t *s) {
-    s->sp++;
-    return *(s->sp - 1);
+void push(stack_t *s, atom_t v) {
+    memcpy(s->h, &v, sizeof(atom_t)); // not sure i need this
+    s->h++;
+}
+
+void pop(stack_t *s) {
+    s->h--;
 }
 
 void dump_stack(stack_t *s) {
     puts("--- stack dump ---");
-    for(stackv *o = s->fp; o > s->sp; o--) {
-        printf("0x%x\t'%s'\n", o, *o);
+    for(atom_t *o = s->atoms; o < s->h; o++) {
+        switch(o->type) {
+            case ATOM:
+                printf("0x%x\t'%s'\n", o, o->atom);
+                break;
+            case NUM:
+                printf("0x%x\t%i\n", o, o->num);
+                break;
+        }
     }
     puts("--- finished dump ---");
 }
 
-char *getatom(char **c) {
-    char *v;
-    char *tmp;
-    char *r;
-    size_t i;
-
-    tmp = strchr(*c, '\x0');
-    i = (size_t) (tmp - *c);
-    v = malloc(i);
+atom_t mkatom(char **c) {
+    char *tmp = strchr(*c, '\x0');
+    size_t i = (size_t) (tmp - *c);
+    char *v = malloc(i);
     memcpy(v, *c, i);
-    r = strdup(v + 1);
+    char *r = strdup(v + 1);
     *c = tmp;
-    return r;
+
+    atom_t t = {.type = ATOM, .atom = r};
+    return t;
+}
+
+atom_t mknum(char **c) {
+    char *tmp = strchr(*c, '\x0');
+    int r = (int) atoi(*c);
+    *c = tmp;
+
+    atom_t t = {.type = NUM, .num = r};
+    return t;
 }
 
 void run(stack_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
-        char *a;
+        atom_t a;
         switch(c[0]) {
             case NOP:
                 break;
             case PUSHA:
-                a = getatom(&c);
-                push(s, (stackv) a);
+                a = mkatom(&c);
+                push(s, a);
+                break;
+            case PUSHN:
+                a = mknum(&c);
+                push(s, a);
                 break;
             case POP:
                 pop(s);
                 break;
             default:
-                printf("UNKNOWN OPCODE: 0x%x", c[0]);
+                fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
                 exit(1);
         }
         c++;
@@ -95,14 +126,20 @@ void run(stack_t *s, char *prog) {
 }
 
 int main(void) {
-    stack_t *S = init_stack();
+    stack_t *s = init_stack();
     char *prog =
         "\x1" "somethinaddf\x0"
-        "\x4"
+        "\x1" "think\x0"
+        //"\x4"
+        "\x2" "3\x0"
+        "\x2" "12\x0"
+        "\x2" "31\x0"
+        "\x2" "312\x0"
         "\x1" "str\x0"
         "\x7f";
 
-    run(S, prog);
-    dump_stack(S);
+    run(s, prog);
+    dump_stack(s);
+    destroy_stack(s);
     return 0;
 }
