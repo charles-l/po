@@ -8,6 +8,7 @@
 
 // TODO: grow stack on demand (maybe?)
 // TODO: JIT for blazing fast speedz
+// TODO: replace labels with offset addresses
 
 typedef enum opcode {
     NOP   = 0x0,
@@ -23,7 +24,7 @@ typedef enum opcode {
 } opcode;
 
 typedef enum a_type {
-    ATOM,
+    SYM,
     NUM,
     CONS
 } a_type;
@@ -32,7 +33,7 @@ typedef struct atom {
     a_type type;
     union {
         int num;
-        char *atom;
+        char *sym;
         struct {
             struct atom *car, *cdr;
         };
@@ -72,6 +73,7 @@ void push(state_t *s, atom_t v) {
 }
 
 atom_t pop(state_t *s) {
+    // TODO: clean up allocated shtuff here
     s->sp--;
     return *(s->sp);
 }
@@ -80,21 +82,21 @@ void dump_state(state_t *s) {
     puts("--- state dump ---");
     for(atom_t *o = s->atoms; o < s->sp; o++) {
         switch(o->type) {
-            case ATOM:
-                printf("0x%x\t'%s'\n", o, o->atom);
+            case SYM:
+                printf("0x%x\t'%s'\n", o, o->sym);
                 break;
             case NUM:
                 printf("0x%x\t%i\n", o, o->num);
                 break;
             case CONS:
-                printf("0x%x\t(%s, %p)\n", o, o->car->atom, o->cdr);
+                printf("0x%x\t(%s, %p)\n", o, o->car->sym, o->cdr);
                 break;
         }
     }
     puts("--- finished dump ---");
 }
 
-#define FULLTOK(res) \
+#define GETTOK(res) \
     char *tmp = strchr(*c, '\x0'); \
     size_t i = (size_t) (tmp - *c); \
     char *v = malloc(i); \
@@ -102,32 +104,32 @@ void dump_state(state_t *s) {
     res = strdup(v + 1); \
     *c = tmp; \
 
-atom_t mkatom(char **c) {
-    char *r;
-    FULLTOK(r);
+#define PUSHTOK(fields...) \
+    atom_t t = {fields}; \
+    push(s,t);
 
-    atom_t t = {.type = ATOM, .atom = r};
-    return t;
+
+void mksym (state_t *s, char **c) {
+    char *r;
+    GETTOK(r);
+    PUSHTOK(.type = SYM, .sym = r);
 }
 
-atom_t mknum(char **c) {
+void mknum(state_t *s, char **c) {
     char *tmp = strchr(*c, '\x0');
     int r = (int) atoi(*c + 1);
     *c = tmp;
-
-    atom_t t = {.type = NUM, .num = r};
-    return t;
+    PUSHTOK(.type = NUM, .num = r);
 }
 
 #define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
 
-atom_t mkcons(state_t *s, char **p) {
+void mkcons(state_t *s, char **p) {
     atom_t a = pop(s); atom_t b = pop(s);
     atom_t *c, *d;
     MEMDUP(c, &a, sizeof(atom_t));
     MEMDUP(d, &b, sizeof(atom_t));
-    atom_t t = {.type = CONS, .car = c, .cdr = d};
-    return t;
+    PUSHTOK(.type = CONS, .car = c, .cdr = d);
 }
 
 char *istrchr(char *s, int c, int e) {
@@ -149,37 +151,63 @@ void jump(state_t *s, char **p) {
     *p = tmp + 2;
 }
 
+int istrue(atom_t t) {
+    if(t.type == NUM) {
+        return t.num != 0;
+    } else if (t.type == CONS) {
+        return t.car && t.cdr;
+    } else if (t.type == SYM) {
+        return 1;
+    }
+    return 0;
+}
+
+void tjump(state_t *s, char **p) {
+    if(istrue(pop(s))) {
+        jump(s, p);
+    }
+}
+
+void fjump(state_t *s, char **p) {
+    if(!istrue(pop(s))) {
+        jump(s, p);
+    }
+}
+
 void run(state_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
         atom_t a;
         switch(c[0]) {
             case NOP:
-                goto end;
+                break;
             case ':':
                 c += 2;
             case PUSHA:
-                a = mkatom(&c);
+                mksym(s, &c);
                 break;
             case PUSHN:
-                a = mknum(&c);
+                mknum(s, &c);
                 break;
             case PUSHC:
-                a = mkcons(s, &c);
+                mkcons(s, &c);
                 break;
             case JUMP:
                 jump(s, &c);
-                goto end;
+                break;
+            case TJUMP:
+                tjump(s, &c);
+                break;
+            case FJUMP:
+                fjump(s, &c);
+                break;
             case POP:
                 pop(s);
-                goto end;
+                break;
             default:
                 fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
                 exit(1);
-        }
-        push(s, a); // TODO: move this to push functions
-end:
-        c++;
+        } c++;
     }
 }
 
