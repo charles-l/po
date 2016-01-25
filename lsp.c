@@ -28,7 +28,7 @@ typedef struct atom {
         int num;
         char *atom;
         struct {
-            struct atom *first, *rest;
+            struct atom *car, *cdr;
         };
     };
 } atom_t;
@@ -49,6 +49,7 @@ stack_t *init_stack() {
 
 void destroy_stack(stack_t *s) {
     // TODO: delete malloced mem from atoms
+    // TODO: delete malloced mem from cons
     free(s->atoms);
     free(s);
     s = NULL;
@@ -59,8 +60,9 @@ void push(stack_t *s, atom_t v) {
     s->h++;
 }
 
-void pop(stack_t *s) {
+atom_t pop(stack_t *s) {
     s->h--;
+    return *(s->h);
 }
 
 void dump_stack(stack_t *s) {
@@ -72,6 +74,9 @@ void dump_stack(stack_t *s) {
                 break;
             case NUM:
                 printf("0x%x\t%i\n", o, o->num);
+                break;
+            case CONS:
+                printf("0x%x\t(%p, %p)\n", o, o->car, o->cdr);
                 break;
         }
     }
@@ -99,28 +104,42 @@ atom_t mknum(char **c) {
     return t;
 }
 
+#define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
+
+atom_t mkcons(stack_t *s, char **prog) {
+    atom_t a = pop(s); atom_t b = pop(s);
+    atom_t *c, *d;
+    MEMDUP(c, &a, sizeof(atom_t));
+    MEMDUP(d, &b, sizeof(atom_t));
+    atom_t t = {.type = CONS, .car = &a, .cdr = &b};
+    return t;
+}
+
 void run(stack_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
         atom_t a;
         switch(c[0]) {
             case NOP:
-                break;
+                goto end;
             case PUSHA:
                 a = mkatom(&c);
-                push(s, a);
                 break;
             case PUSHN:
                 a = mknum(&c);
-                push(s, a);
+                break;
+            case PUSHC:
+                a = mkcons(s, &c);
                 break;
             case POP:
                 pop(s);
-                break;
+                goto end;
             default:
                 fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
                 exit(1);
         }
+        push(s, a);
+end:
         c++;
     }
 }
@@ -130,12 +149,12 @@ int main(void) {
     char *prog =
         "\x1" "somethinaddf\x0"
         "\x1" "think\x0"
-        "\x4"
         "\x2" "3\x0"
         "\x2" "12\x0"
         "\x2" "31\x0"
         "\x2" "312\x0"
         "\x1" "str\x0"
+        "\x3"
         "\x7f";
 
     run(s, prog);
