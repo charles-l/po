@@ -21,6 +21,14 @@ typedef enum opcode {
     JUMP  = 0x7,
     TJUMP = 0x8, // true jump
     FJUMP = 0x9, // false jump
+    CAR   = 0xA,
+    CDR   = 0xB,
+    SCAR  = 0xC, // set car
+    SCDR  = 0xD, // set cdr
+
+    ///
+
+    FFI   = 0x40, // FFI call
     EOP   = 0x7f // end of program
 } opcode;
 
@@ -184,39 +192,29 @@ void fjump(state_t *s, char **p) {
     }
 }
 
+void fficall(state_t *s, char **p) { /* saved for later */ }
+
+#define CASE(en, b) \
+    case en: \
+        b; \
+        break;
+
 void run(state_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
         atom_t a;
         switch(c[0]) {
-            case NOP:
-                break;
-            case ':':
-                c += 2;
-            case PUSHA:
-                mksym(s, &c);
-                break;
-            case PUSHN:
-                mknum(s, &c);
-                break;
-            case PUSHC:
-                mkcons(s, &c);
-                break;
-            case PUSH0:
-                mknil(s, &c);
-                break;
-            case JUMP:
-                jump(s, &c);
-                break;
-            case TJUMP:
-                tjump(s, &c);
-                break;
-            case FJUMP:
-                fjump(s, &c);
-                break;
-            case POP:
-                pop(s);
-                break;
+            CASE(NOP, NULL);
+            CASE(':', c+=2);
+            CASE(PUSHA, mksym  (s, &c));
+            CASE(PUSHN, mknum  (s, &c));
+            CASE(PUSHC, mkcons (s, &c));
+            CASE(PUSH0, mknil  (s, &c));
+            CASE(JUMP,  jump   (s, &c));
+            CASE(TJUMP, tjump  (s, &c));
+            CASE(FJUMP, fjump  (s, &c));
+            CASE(FFI,   fficall(s, &c));
+            CASE(POP,   pop    (s));
             default:
                 fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
                 exit(1);
