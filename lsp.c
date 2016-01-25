@@ -16,10 +16,11 @@ typedef enum opcode {
     PUSHN = 0x2, // push number
     PUSHC = 0x3, // push cons
     PUSHL = 0x4, // push lambda
-    POP   = 0x5,
-    JUMP  = 0x6,
-    TJUMP = 0x7, // true jump
-    FJUMP = 0x8, // false jump
+    PUSH0 = 0x5, // push null
+    POP   = 0x6,
+    JUMP  = 0x7,
+    TJUMP = 0x8, // true jump
+    FJUMP = 0x9, // false jump
     EOP   = 0x7f // end of program
 } opcode;
 
@@ -78,18 +79,23 @@ atom_t pop(state_t *s) {
     return *(s->sp);
 }
 
+#define GAP "    "
 void dump_state(state_t *s) {
     puts("--- state dump ---");
     for(atom_t *o = s->atoms; o < s->sp; o++) {
         switch(o->type) {
             case SYM:
-                printf("0x%x\t'%s'\n", o, o->sym);
+                printf("0x%08x" GAP "'%s'\n", o, o->sym);
                 break;
             case NUM:
-                printf("0x%x\t%i\n", o, o->num);
+                printf("0x%08x" GAP "%i\n", o, o->num);
                 break;
             case CONS:
-                printf("0x%x\t(%s, %p)\n", o, o->car->sym, o->cdr);
+                if(o->car == NULL) {
+                    printf("0x%08x" GAP "'()\n");
+                } else {
+                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car->sym, o->cdr);
+                }
                 break;
         }
     }
@@ -108,6 +114,7 @@ void dump_state(state_t *s) {
     atom_t t = {fields}; \
     push(s,t);
 
+#define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
 
 void mksym (state_t *s, char **c) {
     char *r;
@@ -122,16 +129,19 @@ void mknum(state_t *s, char **c) {
     PUSHTOK(.type = NUM, .num = r);
 }
 
-#define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
-
-void mkcons(state_t *s, char **p) {
+void mkcons(state_t *s, char **c) {
     atom_t a = pop(s); atom_t b = pop(s);
-    atom_t *c, *d;
-    MEMDUP(c, &a, sizeof(atom_t));
-    MEMDUP(d, &b, sizeof(atom_t));
-    PUSHTOK(.type = CONS, .car = c, .cdr = d);
+    atom_t *x, *y;
+    MEMDUP(x, &a, sizeof(atom_t));
+    MEMDUP(y, &b, sizeof(atom_t));
+    PUSHTOK(.type = CONS, .car = x, .cdr = y);
 }
 
+void mknil (state_t *s, char **c) {
+    PUSHTOK(.type = CONS, .car = NULL, .cdr = NULL);
+}
+
+// ignore \0
 char *istrchr(char *s, int c, int e) {
     for(; s[0] != e; s++) {
         if(s[0] == c) {
@@ -192,6 +202,9 @@ void run(state_t *s, char *prog) {
             case PUSHC:
                 mkcons(s, &c);
                 break;
+            case PUSH0:
+                mknil(s, &c);
+                break;
             case JUMP:
                 jump(s, &c);
                 break;
@@ -213,12 +226,10 @@ void run(state_t *s, char *prog) {
 
 int main(void) {
     state_t *s = init_state();
-    char *str = "a str";
-    char *str2 = "b efesadsf";
     char *prog =
         "\x1" "somethinaddf\x0"
         "\x1" "think\x0"
-        "\x6" "AB"
+        "\x7" "AB"
         "\x2" "3\x0"
         "\x2" "12\x0"
         "\x2" "31\x0"
@@ -226,6 +237,7 @@ int main(void) {
         "\x2" "312\x0"
         "\x1" "str\x0"
         "\x3"
+        "\x5"
         "\x7f";
 
     run(s, prog);
