@@ -16,9 +16,10 @@
 
 typedef enum opcode {
     NOP   = 0x0,
-    PUSH  = 0x1,
-    POP   = 0x2,
-    LOAD  = 0x3,
+    PUSHA = 0x1, // push atom
+    PUSHN = 0x2, // push number
+    PUSHC = 0x3, // push cons
+    POP   = 0x4,
     EOP   = 0x7f // end of program
 } opcode;
 
@@ -51,29 +52,36 @@ stackv pop(stack_t *s) {
 void dump_stack(stack_t *s) {
     puts("--- stack dump ---");
     for(stackv *o = s->fp; o > s->sp; o--) {
-        printf("0x%x\t0x%x\n", o, *o);
+        printf("0x%x\t'%s'\n", o, *o);
     }
     puts("--- finished dump ---");
+}
+
+char *getatom(char **c) {
+    char *v;
+    char *tmp;
+    char *r;
+    size_t i;
+
+    tmp = strchr(*c, '\x0');
+    i = (size_t) (tmp - *c);
+    v = malloc(i);
+    memcpy(v, *c, i);
+    r = strdup(v + 1);
+    *c = tmp;
+    return r;
 }
 
 void run(stack_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
-        char *v;
-        char *tmp;
-        char *r;
-        size_t i;
+        char *a;
         switch(c[0]) {
             case NOP:
                 break;
-            case PUSH:
-                tmp = strchr(c, '\x0');
-                i = (size_t) (tmp - c);
-                v = malloc(i);
-                memcpy(v, c, i);
-                r = strdup(v);
-                push(s, (stackv) v);
-                c+=i;
+            case PUSHA:
+                a = getatom(&c);
+                push(s, (stackv) a);
                 break;
             case POP:
                 pop(s);
@@ -88,8 +96,9 @@ void run(stack_t *s, char *prog) {
 
 int main(void) {
     stack_t *S = init_stack();
-    char *prog = "\x1" "somethinasdf\x0"
-        "\x2"
+    char *prog =
+        "\x1" "somethinaddf\x0"
+        "\x4"
         "\x1" "str\x0"
         "\x7f";
 
