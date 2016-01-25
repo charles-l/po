@@ -92,7 +92,7 @@ atom_t mkatom(char **c) {
 
 atom_t mknum(char **c) {
     char *tmp = strchr(*c, '\x0');
-    int r = (int) atoi(*c);
+    int r = (int) atoi(*c + 1);
     *c = tmp;
 
     atom_t t = {.type = NUM, .num = r};
@@ -130,7 +130,7 @@ int main(void) {
     char *prog =
         "\x1" "somethinaddf\x0"
         "\x1" "think\x0"
-        //"\x4"
+        "\x4"
         "\x2" "3\x0"
         "\x2" "12\x0"
         "\x2" "31\x0"
