@@ -68,8 +68,8 @@ state_t *init_state() {
 void destroy_state(state_t *s) {
     // TODO: delete malloced mem from atoms
     // TODO: delete malloced mem from cons
-    free(s->atoms);
-    free(s);
+   // free(s->atoms);
+    //free(s);
     s = NULL;
 }
 
@@ -105,7 +105,7 @@ void dump_state(state_t *s) {
                 if(o->car == NULL) {
                     printf("0x%08x" GAP "'()\n");
                 } else {
-                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car, o->cdr);
+                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car->sym, o->cdr);
                 }
                 break;
         }
@@ -127,21 +127,30 @@ void dump_state(state_t *s) {
 
 #define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
 
-void mksym (state_t *s, char **c) {
-    char *r;
-    GETTOK(r);
-    PUSHTOK(.type = SYM, .sym = r);
+char *gettok(char **c) {
+    char *tmp = strchr(*c, '\x0');
+    size_t i = (size_t) (tmp - *c);
+    char *v = malloc(i);
+    memcpy(v, *c, i);
+    char *r = strdup(v + 1);
+    *c = tmp;
+    return r;
 }
 
-void mknum(state_t *s, char **c) {
-    char *tmp = strchr(*c, '\x0');
-    int r = (int) atoi(*c + 1);
-    *c = tmp;
-    PUSHTOK(.type = NUM, .num = r);
+atom_t *mksym (char *r) {
+    atom_t a = {.type = SYM, .sym = r};
+    return adup(&a);
+}
+
+atom_t *mknum(int v) {
+    atom_t a = {.type = NUM, .num = v};
+    return adup(&a);
 }
 
 atom_t *mkcons(atom_t *x, atom_t *y) {
-    atom_t a = {.type = CONS, .car = x, .cdr = y};
+    atom_t a = {.type = CONS, .car = adup(x), .cdr = adup(y)};
+    //free(x);
+    //free(y);
     return adup(&a);
 }
 
@@ -189,8 +198,15 @@ void fficall(state_t *s, char **p) { /* TODO: implement */ }
 
 #define TOPATOM (s->sp - 1)
 
-#define car(p) ((p)->car)
-#define cdr(p) ((p)->cdr)
+atom_t *car(atom_t *a) {
+    assert(a->type == CONS);
+    return a->car;
+}
+
+atom_t *cdr(atom_t *a) {
+    assert(a->type == CONS);
+    return a->cdr;
+}
 
 atom_t *assoc(atom_t *key, atom_t *alist) {
     if(isnil(alist)) return alist;
@@ -219,16 +235,22 @@ atom_t *eval(atom_t *e, atom_t *env) {
 void run(state_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
-        atom_t a;
+        atom_t *a;
         atom_t *x;
         atom_t *y;
+        char *t;
         switch(c[0]) {
             // TODO: do not reference prog directly
             CASE(NOP, NULL);
             CASE(':', c+=2); // skip label
-            CASE(PUSHA, mksym  (s, &c));
-            CASE(PUSHN, mknum  (s, &c));
-            CASE(PUSHC, x = pop(s); y = pop(s); push(s, mkcons (x, y)));
+            CASE(PUSHA, push(s, mksym(gettok(&c))));
+            CASE(PUSHN, t = gettok(&c);
+                    push(s, mknum(atoi(t)));
+                    free(t));
+            CASE(PUSHC,
+                    x = pop(s);
+                    y = pop(s);
+                    push(s, mkcons(x, y)));
             CASE(PUSH0, push(s, mknil()));
             CASE(JUMP,  jump   (s, &c));
             CASE(TJUMP, tjump  (s, &c));
@@ -255,10 +277,10 @@ int main(void) {
         "\x2" "31\x0"           // push number
         ":AB"                   // label def
         "\x2" "312\x0"          // push num
+        "\x1" "astr\x0"         // push sym
         "\x3"                   // push cons (last two elems on stack)
-        "\xB"                   // cdr top of stack
-        "\x1" "str\x0"          // push sym
-        "\xC"
+        "\xB"
+        //"\xC"                   // call top
         "\x7f";
 
     run(s, prog);
