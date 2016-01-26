@@ -90,21 +90,21 @@ atom_t *adup(atom_t *a) {
     return r;
 }
 
-#define GAP "    "
+#define GAP " "
 
 void print_atom(atom_t *a) {
     switch(a->type) {
         case SYM:
-            printf("0x%08x" GAP "'%s'", a, a->sym);
+            printf("'%s'", a->sym);
             break;
         case NUM:
-            printf("0x%08x" GAP "%i", a, a->num);
+            printf("%i", a->num);
             break;
         case CONS:
             if(a->car == NULL) {
-                printf("0x%08x" GAP "'()");
+                printf("nil");
             } else {
-                printf("0x%08x" GAP "(", a);
+                printf("(", a);
                 print_atom(a->car);
                 printf(GAP);
                 print_atom(a->cdr);
@@ -113,10 +113,12 @@ void print_atom(atom_t *a) {
             break;
     }
 }
+
 void dump_state(state_t *s) {
     puts("--- state dump ---");
     for(atom_t *o = s->atoms; o < s->sp; o++)
     {
+        printf("%08p" GAP, o);
         print_atom(o);
         printf("\n");
     }
