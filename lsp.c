@@ -50,10 +50,6 @@ typedef struct atom {
     };
 } atom_t;
 
-typedef struct jmp_tab {
-    uint16_t addrs;
-} jmp_tab_t;
-
 typedef struct state {
     atom_t *atoms;
     atom_t *sp;
@@ -82,10 +78,10 @@ void push(state_t *s, atom_t *v) {
     s->sp++;
 }
 
-atom_t pop(state_t *s) {
+atom_t *pop(state_t *s) {
     // TODO: clean up allocated shtuff here
     s->sp--;
-    return *(s->sp);
+    return s->sp;
 }
 
 atom_t *adup(atom_t *a) {
@@ -144,12 +140,9 @@ void mknum(state_t *s, char **c) {
     PUSHTOK(.type = NUM, .num = r);
 }
 
-void mkcons(state_t *s, char **c) {
-    atom_t a = pop(s); atom_t b = pop(s);
-    atom_t *x, *y;
-    MEMDUP(x, &a, sizeof(atom_t));
-    MEMDUP(y, &b, sizeof(atom_t));
-    PUSHTOK(.type = CONS, .car = x, .cdr = y);
+atom_t *mkcons(atom_t *x, atom_t *y) {
+    atom_t a = {.type = CONS, .car = x, .cdr = y};
+    return adup(&a);
 }
 
 atom_t *mknil() {
@@ -183,13 +176,13 @@ int isnil(atom_t *t) {
 }
 
 void tjump(state_t *s, char **p) {
-    atom_t a = pop(s);
-    if(!isnil(&a)) jump(s, p);
+    atom_t *a = pop(s);
+    if(!isnil(a)) jump(s, p);
 }
 
 void fjump(state_t *s, char **p) {
-    atom_t a = pop(s);
-    if(isnil(&a)) jump(s, p);
+    atom_t *a = pop(s);
+    if(isnil(a)) jump(s, p);
 }
 
 void fficall(state_t *s, char **p) { /* TODO: implement */ }
@@ -227,13 +220,15 @@ void run(state_t *s, char *prog) {
     char *c = prog;
     while(c[0] != EOP) {
         atom_t a;
+        atom_t *x;
+        atom_t *y;
         switch(c[0]) {
             // TODO: do not reference prog directly
             CASE(NOP, NULL);
             CASE(':', c+=2); // skip label
             CASE(PUSHA, mksym  (s, &c));
             CASE(PUSHN, mknum  (s, &c));
-            CASE(PUSHC, mkcons (s, &c));
+            CASE(PUSHC, x = pop(s); y = pop(s); push(s, mkcons (x, y)));
             CASE(PUSH0, push(s, mknil()));
             CASE(JUMP,  jump   (s, &c));
             CASE(TJUMP, tjump  (s, &c));
@@ -242,7 +237,7 @@ void run(state_t *s, char *prog) {
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
             CASE(CALL,  push(s, eval(TOPATOM, mknil())));
-            CASE(POP,   pop    (s));
+            CASE(POP,   free  (pop(s)));
             default:
                 error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
