@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #define STACK_SIZE 1024
+#define P(a) print_atom(a); printf("\n");
 #define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
 
 // TODO: <s>grow stack on demand (maybe?)</s> MAKE THE ENTIRE STACK AN ALIST THAT IT CAN REWRITE AT RUNTIME!!!
@@ -56,6 +57,8 @@ typedef struct state {
     atom_t *fp;
     size_t size;
 } state_t;
+
+atom_t *nil;
 
 state_t *init_state() {
     state_t *s = malloc(sizeof(state_t));
@@ -119,8 +122,7 @@ void dump_state(state_t *s) {
     for(atom_t *o = s->atoms; o < s->sp; o++)
     {
         printf("%08p" GAP, o);
-        print_atom(o);
-        printf("\n");
+        P(o);
     }
     puts("--- finished dump ---");
 }
@@ -149,25 +151,20 @@ char *gettok(char **c) {
     return r;
 }
 
-atom_t *mksym (char *r) {
+atom_t *sym (char *r) {
     atom_t a = {.type = SYM, .sym = r};
     return adup(&a);
 }
 
-atom_t *mknum(int v) {
+atom_t *num(int v) {
     atom_t a = {.type = NUM, .num = v};
     return adup(&a);
 }
 
-atom_t *mkcons(atom_t *x, atom_t *y) {
+atom_t *cons(atom_t *x, atom_t *y) {
     atom_t a = {.type = CONS, .car = adup(x), .cdr = adup(y)};
     //free(x);
     //free(y);
-    return adup(&a);
-}
-
-atom_t *mknil() {
-    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
     return adup(&a);
 }
 
@@ -193,7 +190,7 @@ void jump(state_t *s, char **p) {
 
 int isnil(atom_t *t) {
     if (t == NULL) return 1;
-    if (t->type == CONS) return t->car == NULL;
+    return t == nil;
     return 0;
 }
 
@@ -212,51 +209,56 @@ void fficall(state_t *s, char **p) { /* TODO: implement */ }
 #define TOPATOM (s->sp - 1)
 
 atom_t *car(atom_t *a) {
-    assert(a->type == CONS);
-    return a->car;
+    if(a->type == CONS)
+        return a->car;
+    return a;
 }
 
 atom_t *cdr(atom_t *a) {
-    assert(a->type == CONS);
-    return a->cdr;
+    if(a->type == CONS)
+        return a->cdr;
+    return a;
+}
+
+atom_t *eq(atom_t *a, atom_t *b) {
+    if(a->type != b->type) return nil;
+    switch(a->type) {
+        case NUM:
+            if(a->num == b->num) return sym("t");
+        case SYM:
+            if(strcmp(a->sym, b->sym)) return sym("t");
+    }
+    return nil;
 }
 
 atom_t *assoc(atom_t *key, atom_t *alist) {
     if(isnil(alist)) return alist;
-    if(car(car(alist)) == key) return car(alist);
+    if(!isnil(eq(car(car(alist)), key))) return car(alist);
     return assoc(key, cdr(alist));
 }
 
 #define SYMEQ(a, s) (strcmp(a->sym, s) == 0)
-#define setcar(X,Y)           (((X)->car) = (Y))
-#define setcdr(X,Y)           (((X)->cdr) = (Y))
 
 atom_t *insert(atom_t *alist, atom_t *e) {
-    alist = mkcons(e, alist);
+    alist = cons(e, alist);
     return alist;
 }
 
-void list_dump(atom_t *alist) {
-    puts("--- dumping list ---");
-    for(; !isnil(alist->cdr); alist = alist->cdr)
-        print_atom(alist->car);
-    puts("--- end dump ---");
-}
-
-atom_t *eval(atom_t *e, atom_t *env) {
+atom_t *eval(atom_t *e, atom_t **env) {
     atom_t *t;
     if(isnil(e)) return e;
     switch(e->type) {
         case NUM:
             return e;
         case SYM:
-            t = assoc(e, env);
-            if(isnil(t)) list_dump(env); error("unbound symbol '%s'\n", t->sym);
+            t = assoc(e, *env);
+            P(t);
+            if(isnil(t)) error("unbound symbol '%s'\n", t->sym);
             return cdr(t);
         case CONS:
             // TODO: bootstrap anything in here
             if(SYMEQ(car(e), "def")) {
-                insert(env, mkcons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
+                *env = insert(*env, cons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
             }
     }
     return e;
@@ -269,9 +271,8 @@ break;
 
 void run(state_t *s, char *prog) {
     char *c = prog;
-    atom_t *env = mknil();
-    insert(env, mkcons(mksym("tesT"), mknum(1)));
-    list_dump(env);
+    atom_t *env = cons(sym("stuff"), nil);
+    insert(env, cons(sym("tesT"), num(1)));
     while(c[0] != EOP) {
         atom_t *a;
         atom_t *x;
@@ -281,22 +282,22 @@ void run(state_t *s, char *prog) {
             // TODO: do not reference prog directly
             CASE(NOP, NULL);
             CASE(':', c+=2); // skip label
-            CASE(PUSHA, push(s, mksym(gettok(&c))));
+            CASE(PUSHA, push(s, sym(gettok(&c))));
             CASE(PUSHN, t = gettok(&c);
-                    push(s, mknum(atoi(t)));
+                    push(s, num(atoi(t)));
                     free(t));
             CASE(PUSHC,
                     x = pop(s);
                     y = pop(s);
-                    push(s, mkcons(x, y)));
-            CASE(PUSH0, push(s, mknil()));
+                    push(s, cons(x, y)));
+            CASE(PUSH0, push(s, nil));
             CASE(JUMP,  jump   (s, &c));
             CASE(TJUMP, tjump  (s, &c));
             CASE(FJUMP, fjump  (s, &c));
             CASE(FFI,   fficall(s, &c));
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
-            CASE(CALL,  push(s, eval(TOPATOM, env)));
+            CASE(CALL,  push(s, eval(TOPATOM, &env)));
             CASE(POP,   free  (pop(s)));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
@@ -305,6 +306,9 @@ void run(state_t *s, char *prog) {
 }
 
 int main(void) {
+    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
+    nil = adup(&a);
+
     state_t *s = init_state();
     char *prog =
         // (def a 312)
@@ -319,7 +323,7 @@ int main(void) {
 
         // a
         "\x1" "a\x0"
-//        "\xC"
+        "\xC"
         "\x7f";
 
     run(s, prog);
