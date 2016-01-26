@@ -7,7 +7,7 @@
 #define STACK_SIZE 1024
 #define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
 
-// TODO: grow stack on demand (maybe?)
+// TODO: <s>grow stack on demand (maybe?)</s> MAKE THE ENTIRE STACK AN ALIST THAT IT CAN REWRITE AT RUNTIME!!!
 // TODO: JIT for blazing fast speedz
 // TODO: replace labels with offset addresses
 // TODO: error type
@@ -91,24 +91,34 @@ atom_t *adup(atom_t *a) {
 }
 
 #define GAP "    "
+
+void print_atom(atom_t *a) {
+    switch(a->type) {
+        case SYM:
+            printf("0x%08x" GAP "'%s'", a, a->sym);
+            break;
+        case NUM:
+            printf("0x%08x" GAP "%i", a, a->num);
+            break;
+        case CONS:
+            if(a->car == NULL) {
+                printf("0x%08x" GAP "'()");
+            } else {
+                printf("0x%08x" GAP "(", a);
+                print_atom(a->car);
+                printf(GAP);
+                print_atom(a->cdr);
+                printf(")");
+            }
+            break;
+    }
+}
 void dump_state(state_t *s) {
     puts("--- state dump ---");
-    for(atom_t *o = s->atoms; o < s->sp; o++) {
-        switch(o->type) {
-            case SYM:
-                printf("0x%08x" GAP "'%s'\n", o, o->sym);
-                break;
-            case NUM:
-                printf("0x%08x" GAP "%i\n", o, o->num);
-                break;
-            case CONS:
-                if(o->car == NULL) {
-                    printf("0x%08x" GAP "'()\n");
-                } else {
-                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car->sym, o->cdr);
-                }
-                break;
-        }
+    for(atom_t *o = s->atoms; o < s->sp; o++)
+    {
+        print_atom(o);
+        printf("\n");
     }
     puts("--- finished dump ---");
 }
@@ -180,6 +190,7 @@ void jump(state_t *s, char **p) {
 }
 
 int isnil(atom_t *t) {
+    if (t == NULL) return 1;
     if (t->type == CONS) return t->car == NULL;
     return 0;
 }
@@ -214,6 +225,22 @@ atom_t *assoc(atom_t *key, atom_t *alist) {
     return assoc(key, cdr(alist));
 }
 
+#define SYMEQ(a, s) (strcmp(a->sym, s) == 0)
+#define setcar(X,Y)           (((X)->car) = (Y))
+#define setcdr(X,Y)           (((X)->cdr) = (Y))
+
+atom_t *insert(atom_t *alist, atom_t *e) {
+    alist = mkcons(e, alist);
+    return alist;
+}
+
+void list_dump(atom_t *alist) {
+    puts("--- dumping list ---");
+    for(; !isnil(alist->cdr); alist = alist->cdr)
+        print_atom(alist->car);
+    puts("--- end dump ---");
+}
+
 atom_t *eval(atom_t *e, atom_t *env) {
     atom_t *t;
     if(isnil(e)) return e;
@@ -222,18 +249,27 @@ atom_t *eval(atom_t *e, atom_t *env) {
             return e;
         case SYM:
             t = assoc(e, env);
-            if(isnil(t)) error("unbound symbol '%s'\n", t->sym);
+            if(isnil(t)) list_dump(env); error("unbound symbol '%s'\n", t->sym);
             return cdr(t);
+        case CONS:
+            // TODO: bootstrap anything in here
+            if(SYMEQ(car(e), "def")) {
+                insert(env, mkcons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
+            }
     }
+    return e;
 }
 
 #define CASE(en, b) \
     case en: \
-        b; \
-        break;
+b; \
+break;
 
 void run(state_t *s, char *prog) {
     char *c = prog;
+    atom_t *env = mknil();
+    insert(env, mkcons(mksym("tesT"), mknum(1)));
+    list_dump(env);
     while(c[0] != EOP) {
         atom_t *a;
         atom_t *x;
@@ -258,10 +294,10 @@ void run(state_t *s, char *prog) {
             CASE(FFI,   fficall(s, &c));
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
-            CASE(CALL,  push(s, eval(TOPATOM, mknil())));
+            CASE(CALL,  push(s, eval(TOPATOM, env)));
             CASE(POP,   free  (pop(s)));
             default:
-                error("UNKNOWN OPCODE: 0x%x\n", c[0]);
+            error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
     }
 }
@@ -269,18 +305,19 @@ void run(state_t *s, char *prog) {
 int main(void) {
     state_t *s = init_state();
     char *prog =
-        "\x1" "somethinaddf\x0" // push sym
-        "\x1" "think\x0"        // push sym
-        "\x7" "AB"              // jmp to label
-        "\x2" "3\x0"            // push number
-        "\x2" "12\x0"           // push number
-        "\x2" "31\x0"           // push number
-        ":AB"                   // label def
+        // (def a 312)
+        "\x5"                   // push nil
         "\x2" "312\x0"          // push num
-        "\x1" "astr\x0"         // push sym
-        "\x3"                   // push cons (last two elems on stack)
-        "\xB"
-        //"\xC"                   // call top
+        "\x3"                   // push cons
+        "\x1" "a\x0"            // push sym
+        "\x3"                   // push cons
+        "\x1" "def\x0"          // push sym
+        "\x3"                   // push cons
+        "\xC"                   // call top
+
+        // a
+        "\x1" "a\x0"
+//        "\xC"
         "\x7f";
 
     run(s, prog);
