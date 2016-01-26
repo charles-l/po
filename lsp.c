@@ -5,10 +5,12 @@
 #include <assert.h>
 
 #define STACK_SIZE 1024
+#define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
 
 // TODO: grow stack on demand (maybe?)
 // TODO: JIT for blazing fast speedz
 // TODO: replace labels with offset addresses
+// TODO: error type
 
 typedef enum opcode {
     NOP   = 0x0,
@@ -23,6 +25,7 @@ typedef enum opcode {
     FJUMP = 0x9, // false jump
     CAR   = 0xA,
     CDR   = 0xB,
+    CALL  = 0xC, // call the top of the stack
 
     ///
 
@@ -85,6 +88,12 @@ atom_t pop(state_t *s) {
     return *(s->sp);
 }
 
+atom_t *adup(atom_t *a) {
+    atom_t *r = malloc(sizeof(atom_t));
+    memcpy(r, a, sizeof(atom_t));
+    return r;
+}
+
 #define GAP "    "
 void dump_state(state_t *s) {
     puts("--- state dump ---");
@@ -100,7 +109,7 @@ void dump_state(state_t *s) {
                 if(o->car == NULL) {
                     printf("0x%08x" GAP "'()\n");
                 } else {
-                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car->sym, o->cdr);
+                    printf("0x%08x" GAP "(%s, %p)\n", o, o->car, o->cdr);
                 }
                 break;
         }
@@ -143,8 +152,9 @@ void mkcons(state_t *s, char **c) {
     PUSHTOK(.type = CONS, .car = x, .cdr = y);
 }
 
-void mknil (state_t *s) {
-    PUSHTOK(.type = CONS, .car = NULL, .cdr = NULL);
+atom_t *mknil() {
+    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
+    return adup(&a);
 }
 
 // ignore \0
@@ -169,7 +179,7 @@ void jump(state_t *s, char **p) {
 
 int isnil(atom_t *t) {
     if (t->type == CONS) return t->car == NULL;
-    return 1;
+    return 0;
 }
 
 void tjump(state_t *s, char **p) {
@@ -189,23 +199,22 @@ void fficall(state_t *s, char **p) { /* TODO: implement */ }
 #define car(p) ((p)->car)
 #define cdr(p) ((p)->cdr)
 
-atom_t *adup(atom_t *a) {
-    atom_t *r = malloc(sizeof(atom_t));
-    memcpy(r, a, sizeof(atom_t));
-    return r;
-}
-
 atom_t *assoc(atom_t *key, atom_t *alist) {
     if(isnil(alist)) return alist;
+    if(car(car(alist)) == key) return car(alist);
+    return assoc(key, cdr(alist));
 }
 
-void eval(state_t *s) {
-    atom_t e = pop(s);
-    if(isnil(&e)) { push(s, &e); return; }
-    switch(e.type) {
+atom_t *eval(atom_t *e, atom_t *env) {
+    atom_t *t;
+    if(isnil(e)) return e;
+    switch(e->type) {
         case NUM:
-            push(s, &e);
-            return;
+            return e;
+        case SYM:
+            t = assoc(e, env);
+            if(isnil(t)) error("unbound symbol '%s'\n", t->sym);
+            return cdr(t);
     }
 }
 
@@ -225,17 +234,17 @@ void run(state_t *s, char *prog) {
             CASE(PUSHA, mksym  (s, &c));
             CASE(PUSHN, mknum  (s, &c));
             CASE(PUSHC, mkcons (s, &c));
-            CASE(PUSH0, mknil  (s));
+            CASE(PUSH0, push(s, mknil()));
             CASE(JUMP,  jump   (s, &c));
             CASE(TJUMP, tjump  (s, &c));
             CASE(FJUMP, fjump  (s, &c));
             CASE(FFI,   fficall(s, &c));
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
+            CASE(CALL,  push(s, eval(TOPATOM, mknil())));
             CASE(POP,   pop    (s));
             default:
-                fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
-                exit(1);
+                error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
     }
 }
@@ -251,9 +260,10 @@ int main(void) {
         "\x2" "31\x0"           // push number
         ":AB"                   // label def
         "\x2" "312\x0"          // push num
-        "\x1" "str\x0"          // push sym
         "\x3"                   // push cons (last two elems on stack)
         "\xB"                   // cdr top of stack
+        "\x1" "str\x0"          // push sym
+        "\xC"
         "\x7f";
 
     run(s, prog);
