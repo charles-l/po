@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #define STACK_SIZE 1024
+
 #define P(a) print_atom(a); printf("\n");
 #define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
 
@@ -60,20 +61,50 @@ typedef struct state {
 
 atom_t *nil;
 
-state_t *init_state() {
-    state_t *s = malloc(sizeof(state_t));
-    s->size = STACK_SIZE;
-    s->atoms = malloc(sizeof(atom_t) * s->size);
-    s->sp = s->fp = s->atoms;
+state_t init_state() {
+    state_t s;
+    s.size = STACK_SIZE;
+    s.atoms = malloc(sizeof(atom_t) * s.size);
+    s.sp = s.fp = s.atoms;
     return s;
 }
 
+void destroy_atom(atom_t *a) {
+    if(isnil(a) || a == NULL) return;
+    switch(a->type) {
+        case NUM:
+            free(a);
+            a = nil;
+            break;
+        case SYM:
+            free(a->sym); // free malloced string
+            //TODO: free(a);
+            a = nil;
+            break;
+        case CONS:
+            destroy_atom(a->car);
+            a->car = nil;
+            if(a->cdr != nil) {
+                destroy_atom(a->cdr);
+            }
+            if(a != nil)
+            {
+                free(a);
+                a = nil;
+            }
+            break;
+    }
+}
+
 void destroy_state(state_t *s) {
-    // TODO: delete malloced mem from atoms
-    // TODO: delete malloced mem from cons
-   // free(s->atoms);
-    //free(s);
-    s = NULL;
+    atom_t *i = s->atoms + 1;
+    while(i < s->sp)
+    {
+        destroy_atom(i);
+        i++;
+    }
+    free(s->atoms);
+    s->atoms = NULL;
 }
 
 void push(state_t *s, atom_t *v) {
@@ -82,7 +113,6 @@ void push(state_t *s, atom_t *v) {
 }
 
 atom_t *pop(state_t *s) {
-    // TODO: clean up allocated shtuff here
     s->sp--;
     return s->sp;
 }
@@ -96,6 +126,7 @@ atom_t *adup(atom_t *a) {
 #define GAP " "
 
 void print_atom(atom_t *a) {
+    if(a == NULL) return;
     switch(a->type) {
         case SYM:
             printf("'%s'", a->sym);
@@ -104,7 +135,7 @@ void print_atom(atom_t *a) {
             printf("%i", a->num);
             break;
         case CONS:
-            if(a->car == NULL) {
+            if(isnil(a)) {
                 printf("nil");
             } else {
                 printf("(", a);
@@ -127,20 +158,6 @@ void dump_state(state_t *s) {
     puts("--- finished dump ---");
 }
 
-#define GETTOK(res) \
-    char *tmp = strchr(*c, '\x0'); \
-    size_t i = (size_t) (tmp - *c); \
-    char *v = malloc(i); \
-    memcpy(v, *c, i); \
-    res = strdup(v + 1); \
-    *c = tmp; \
-
-#define PUSHTOK(fields...) \
-    atom_t t = {fields}; \
-    push(s,&t);
-
-#define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
-
 char *gettok(char **c) {
     char *tmp = strchr(*c, '\x0');
     size_t i = (size_t) (tmp - *c);
@@ -151,6 +168,7 @@ char *gettok(char **c) {
     return r;
 }
 
+// note: r MUST be allocated memory
 atom_t *sym (char *r) {
     atom_t a = {.type = SYM, .sym = r};
     return adup(&a);
@@ -163,6 +181,7 @@ atom_t *num(int v) {
 
 atom_t *cons(atom_t *x, atom_t *y) {
     atom_t a = {.type = CONS, .car = adup(x), .cdr = adup(y)};
+    //TODO:
     //free(x);
     //free(y);
     return adup(&a);
@@ -190,8 +209,7 @@ void jump(state_t *s, char **p) {
 
 int isnil(atom_t *t) {
     if (t == NULL) return 1;
-    return t == nil;
-    return 0;
+    return t->car == NULL && t->cdr == NULL;
 }
 
 void tjump(state_t *s, char **p) {
@@ -224,9 +242,9 @@ atom_t *eq(atom_t *a, atom_t *b) {
     if(a->type != b->type) return nil;
     switch(a->type) {
         case NUM:
-            if(a->num == b->num) return sym("t");
+            if(a->num == b->num) return sym(strdup("t"));
         case SYM:
-            if(strcmp(a->sym, b->sym)) return sym("t");
+            if(strcmp(a->sym, b->sym)) return sym(strdup("t"));
     }
     return nil;
 }
@@ -252,7 +270,6 @@ atom_t *eval(atom_t *e, atom_t **env) {
             return e;
         case SYM:
             t = assoc(e, *env);
-            P(t);
             if(isnil(t)) error("unbound symbol '%s'\n", t->sym);
             return cdr(t);
         case CONS:
@@ -261,7 +278,7 @@ atom_t *eval(atom_t *e, atom_t **env) {
                 *env = insert(*env, cons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
             }
     }
-    return e;
+    return nil;
 }
 
 #define CASE(en, b) \
@@ -271,8 +288,8 @@ break;
 
 void run(state_t *s, char *prog) {
     char *c = prog;
-    atom_t *env = cons(sym("stuff"), nil);
-    insert(env, cons(sym("tesT"), num(1)));
+    atom_t *env = cons(sym(strdup("stuff")), nil);
+    insert(env, cons(sym(strdup("tesT")), num(1)));
     while(c[0] != EOP) {
         atom_t *a;
         atom_t *x;
@@ -298,21 +315,20 @@ void run(state_t *s, char *prog) {
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
             CASE(CALL,  push(s, eval(TOPATOM, &env)));
-            CASE(POP,   free  (pop(s)));
+            CASE(POP,   destroy_atom (pop(s)));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
     }
 }
 
-state_t *init() {
-    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
-    nil = &a;
-    return init_state();
-}
+#define INIT \
+    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL}; \
+    nil = &a; \
 
 int main(void) {
-    state_t *s = init();
+    INIT;
+    state_t s = init_state();
     char *prog =
         // (def a 312)
         "\x5"                   // push nil
@@ -329,8 +345,8 @@ int main(void) {
         "\xC"
         "\x7f";
 
-    run(s, prog);
-    dump_state(s);
-    destroy_state(s);
+    run(&s, prog);
+    dump_state(&s);
+    destroy_state(&s);
     return 0;
 }
