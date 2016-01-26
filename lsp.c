@@ -23,8 +23,6 @@ typedef enum opcode {
     FJUMP = 0x9, // false jump
     CAR   = 0xA,
     CDR   = 0xB,
-    SCAR  = 0xC, // set car
-    SCDR  = 0xD, // set cdr
 
     ///
 
@@ -76,8 +74,8 @@ void destroy_state(state_t *s) {
     s = NULL;
 }
 
-void push(state_t *s, atom_t v) {
-    *(s->sp) = v;
+void push(state_t *s, atom_t *v) {
+    memcpy(s->sp, v, sizeof(atom_t));
     s->sp++;
 }
 
@@ -120,7 +118,7 @@ void dump_state(state_t *s) {
 
 #define PUSHTOK(fields...) \
     atom_t t = {fields}; \
-    push(s,t);
+    push(s,&t);
 
 #define MEMDUP(dest, src, sz) dest = malloc(sz); memcpy(dest, src, sz);
 
@@ -145,7 +143,7 @@ void mkcons(state_t *s, char **c) {
     PUSHTOK(.type = CONS, .car = x, .cdr = y);
 }
 
-void mknil (state_t *s, char **c) {
+void mknil (state_t *s) {
     PUSHTOK(.type = CONS, .car = NULL, .cdr = NULL);
 }
 
@@ -169,52 +167,45 @@ void jump(state_t *s, char **p) {
     *p = tmp + 2;
 }
 
-int istrue(atom_t t) {
-    if(t.type == NUM) {
-        return t.num != 0;
-    } else if (t.type == CONS) {
-        return t.car != NULL;
-    } else if (t.type == SYM) {
-        return 1;
-    }
-    return 0;
+int isnil(atom_t *t) {
+    if (t->type == CONS) return t->car == NULL;
+    return 1;
 }
 
 void tjump(state_t *s, char **p) {
-    if(istrue(pop(s))) {
-        jump(s, p);
-    }
+    atom_t a = pop(s);
+    if(!isnil(&a)) jump(s, p);
 }
 
 void fjump(state_t *s, char **p) {
-    if(!istrue(pop(s))) {
-        jump(s, p);
-    }
+    atom_t a = pop(s);
+    if(isnil(&a)) jump(s, p);
 }
 
 void fficall(state_t *s, char **p) { /* TODO: implement */ }
 
 #define TOPATOM (s->sp - 1)
 
-void car(state_t *s) {
-    assert((s->sp - 1)->type == CONS);
-    if(TOPATOM->car->type == NUM) {
-        PUSHTOK(.type = NUM, .num = TOPATOM->car->num);
-    } else if (TOPATOM->car->type == SYM) {
-        PUSHTOK(.type = SYM, .sym = TOPATOM->car->sym);
-    } else if (TOPATOM->car->type == CONS) {
-        PUSHTOK(.type = CONS, .car = TOPATOM->car->car, .cdr = TOPATOM->car->cdr);
-    }
+#define car(p) ((p)->car)
+#define cdr(p) ((p)->cdr)
+
+atom_t *adup(atom_t *a) {
+    atom_t *r = malloc(sizeof(atom_t));
+    memcpy(r, a, sizeof(atom_t));
+    return r;
 }
 
-void cdr(state_t *s) {
-    assert((s->sp - 1)->type == CONS);
-    if(TOPATOM->cdr->type == NUM) {
-        PUSHTOK(.type = NUM, .num = TOPATOM->cdr->num);
-    } else if (TOPATOM->cdr->type == SYM) {
-        PUSHTOK(.type = SYM, .sym = TOPATOM->cdr->sym);
-    } else if (TOPATOM->cdr->type == CONS) {
-        PUSHTOK(.type = CONS, .car = TOPATOM->cdr->car, .cdr = TOPATOM->cdr->cdr);
+atom_t *assoc(atom_t *key, atom_t *alist) {
+    if(isnil(alist)) return alist;
+}
+
+void eval(state_t *s) {
+    atom_t e = pop(s);
+    if(isnil(&e)) { push(s, &e); return; }
+    switch(e.type) {
+        case NUM:
+            push(s, &e);
+            return;
     }
 }
 
@@ -230,17 +221,17 @@ void run(state_t *s, char *prog) {
         switch(c[0]) {
             // TODO: do not reference prog directly
             CASE(NOP, NULL);
-            CASE(':', c+=2);
+            CASE(':', c+=2); // skip label
             CASE(PUSHA, mksym  (s, &c));
             CASE(PUSHN, mknum  (s, &c));
             CASE(PUSHC, mkcons (s, &c));
-            CASE(PUSH0, mknil  (s, &c));
+            CASE(PUSH0, mknil  (s));
             CASE(JUMP,  jump   (s, &c));
             CASE(TJUMP, tjump  (s, &c));
             CASE(FJUMP, fjump  (s, &c));
             CASE(FFI,   fficall(s, &c));
-            CASE(CAR,   car    (s));
-            CASE(CDR,   cdr    (s));
+            CASE(CAR,   push(s, adup(car(TOPATOM))));
+            CASE(CDR,   push(s, adup(cdr(TOPATOM))));
             CASE(POP,   pop    (s));
             default:
                 fprintf(stderr, "UNKNOWN OPCODE: 0x%x", c[0]);
@@ -260,11 +251,9 @@ int main(void) {
         "\x2" "31\x0"
         ":AB"
         "\x2" "312\x0"
-        "\x5"
-        "\x5"
         "\x1" "str\x0"
         "\x3"
-        "\xA"
+        "\xB"
         "\x7f";
 
     run(s, prog);
