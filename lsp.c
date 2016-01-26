@@ -305,11 +305,14 @@ void run(state_t *s, char *prog) {
     }
 }
 
-int main(void) {
+state_t *init() {
     atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
-    nil = adup(&a);
+    nil = &a;
+    return init_state();
+}
 
-    state_t *s = init_state();
+int main(void) {
+    state_t *s = init();
     char *prog =
         // (def a 312)
         "\x5"                   // push nil
