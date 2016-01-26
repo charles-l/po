@@ -243,17 +243,17 @@ void run(state_t *s, char *prog) {
 int main(void) {
     state_t *s = init_state();
     char *prog =
-        "\x1" "somethinaddf\x0"
-        "\x1" "think\x0"
-        "\x7" "AB"
-        "\x2" "3\x0"
-        "\x2" "12\x0"
-        "\x2" "31\x0"
-        ":AB"
-        "\x2" "312\x0"
-        "\x1" "str\x0"
-        "\x3"
-        "\xB"
+        "\x1" "somethinaddf\x0" // push sym
+        "\x1" "think\x0"        // push sym
+        "\x7" "AB"              // jmp to label
+        "\x2" "3\x0"            // push number
+        "\x2" "12\x0"           // push number
+        "\x2" "31\x0"           // push number
+        ":AB"                   // label def
+        "\x2" "312\x0"          // push num
+        "\x1" "str\x0"          // push sym
+        "\x3"                   // push cons (last two elems on stack)
+        "\xB"                   // cdr top of stack
         "\x7f";
 
     run(s, prog);
