@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <stdarg.h>
 #include <string.h>
 #include <assert.h>
 
@@ -68,7 +69,8 @@ state_t init_state() {
     s.sp = s.fp = s.atoms;
     return s;
 }
-
+                      // TODO: put prototypes here
+int isnil(atom_t *t); // GO AWAY WARNING
 void destroy_atom(atom_t *a) {
     if(isnil(a) || a == NULL) return;
     switch(a->type) {
@@ -244,22 +246,22 @@ atom_t *eq(atom_t *a, atom_t *b) {
         case NUM:
             if(a->num == b->num) return sym(strdup("t"));
         case SYM:
-            if(strcmp(a->sym, b->sym)) return sym(strdup("t"));
+            if(strcmp(a->sym, b->sym) == 0) return sym(strdup("t"));
     }
     return nil;
 }
 
 atom_t *assoc(atom_t *key, atom_t *alist) {
-    if(isnil(alist)) return alist;
-    if(!isnil(eq(car(car(alist)), key))) return car(alist);
+    if(isnil(alist)) return nil;
+    if(!isnil(eq(car(car(alist)), key))) return cdr(car(alist));
     return assoc(key, cdr(alist));
 }
 
 #define SYMEQ(a, s) (strcmp(a->sym, s) == 0)
 
-atom_t *insert(atom_t *alist, atom_t *e) {
-    alist = cons(e, alist);
-    return alist;
+atom_t *insert(atom_t **alist, atom_t *e) {
+    *alist = cons(e, *alist);
+    return *alist;
 }
 
 atom_t *eval(atom_t *e, atom_t **env) {
@@ -275,7 +277,7 @@ atom_t *eval(atom_t *e, atom_t **env) {
         case CONS:
             // TODO: bootstrap anything in here
             if(SYMEQ(car(e), "def")) {
-                *env = insert(*env, cons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
+                *env = insert(env, cons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
             }
     }
     return nil;
@@ -288,8 +290,7 @@ break;
 
 void run(state_t *s, char *prog) {
     char *c = prog;
-    atom_t *env = cons(sym(strdup("stuff")), nil);
-    insert(env, cons(sym(strdup("tesT")), num(1)));
+    atom_t *env = nil;
     while(c[0] != EOP) {
         atom_t *a;
         atom_t *x;
@@ -314,7 +315,7 @@ void run(state_t *s, char *prog) {
             CASE(FFI,   fficall(s, &c));
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
-            CASE(CALL,  push(s, eval(TOPATOM, &env)));
+            CASE(CALL,  push(s, eval(pop(s), &env)));
             CASE(POP,   destroy_atom (pop(s)));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
@@ -322,23 +323,20 @@ void run(state_t *s, char *prog) {
     }
 }
 
-#define INIT \
-    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL}; \
-    nil = &a; \
-
 int main(void) {
-    INIT;
+    atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
+    nil = &a;
     state_t s = init_state();
     char *prog =
         // (def a 312)
-        "\x5"                   // push nil
-        "\x2" "312\x0"          // push num
-        "\x3"                   // push cons
-        "\x1" "a\x0"            // push sym
-        "\x3"                   // push cons
-        "\x1" "def\x0"          // push sym
-        "\x3"                   // push cons
-        "\xC"                   // call top
+        "\x5"           // push nil
+        "\x2" "312\x0"  // push num
+        "\x3"           // push cons
+        "\x1" "a\x0"    // push sym
+        "\x3"           // push cons
+        "\x1" "def\x0"  // push sym
+        "\x3"           // push cons
+        "\xC"           // call top
 
         // a
         "\x1" "a\x0"
