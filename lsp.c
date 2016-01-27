@@ -10,10 +10,19 @@
 #define P(a) print_atom(a); printf("\n");
 #define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
 
-// TODO: <s>grow stack on demand (maybe?)</s> MAKE THE ENTIRE STACK AN ALIST THAT IT CAN REWRITE AT RUNTIME!!!
+// TODO: MAKE THE ENTIRE STACK AN ALIST THAT IT CAN REWRITE AT RUNTIME!!!
 // TODO: JIT for blazing fast speedz
 // TODO: replace labels with offset addresses
 // TODO: error type
+
+// I'm pretty sure this can all eventually be simplified to:
+// car
+// cdr
+// cons
+// null?
+// eq?
+// an environment list
+// stack
 
 typedef enum opcode {
     NOP   = 0x0,
@@ -71,28 +80,29 @@ state_t init_state() {
 }
                       // TODO: put prototypes here
 int isnil(atom_t *t); // GO AWAY WARNING
-void destroy_atom(atom_t *a) {
-    if(isnil(a) || a == NULL) return;
-    switch(a->type) {
+void destroy_atom(atom_t **a) {
+    atom_t *b = *a;
+    if(isnil(b) || b == NULL) return;
+    switch(b->type) {
         case NUM:
-            free(a);
-            a = nil;
+            free(b);
+            b = nil;
             break;
         case SYM:
-            free(a->sym); // free malloced string
+            free(b->sym); // free malloced string
             //TODO: free(a);
-            a = nil;
+            b = nil;
             break;
         case CONS:
-            destroy_atom(a->car);
-            a->car = nil;
-            if(a->cdr != nil) {
-                destroy_atom(a->cdr);
+            destroy_atom(&(b->car));
+            b->car = nil;
+            if(b->cdr != nil) {
+                destroy_atom(&(b->cdr));
             }
-            if(a != nil)
+            if(b != nil)
             {
-                free(a);
-                a = nil;
+                free(b);
+                b = nil;
             }
             break;
     }
@@ -102,7 +112,7 @@ void destroy_state(state_t *s) {
     atom_t *i = s->atoms + 1;
     while(i < s->sp)
     {
-        destroy_atom(i);
+        destroy_atom(&i);
         i++;
     }
     free(s->atoms);
@@ -160,12 +170,21 @@ void dump_state(state_t *s) {
     puts("--- finished dump ---");
 }
 
+// ignore \0
+char *istrchr(char *s, int c, int e) {
+    for(; s[0] != e; s++) {
+        if(s[0] == c) {
+            return s;
+        }
+    }
+    return NULL;
+}
+
 char *gettok(char **c) {
-    char *tmp = strchr(*c, '\x0');
+    char *tmp = istrchr(*c, '\x0', '\x7f');
     size_t i = (size_t) (tmp - *c);
-    char *v = malloc(i);
-    memcpy(v, *c, i);
-    char *r = strdup(v + 1);
+    char *r = malloc(i);
+    memcpy(r, *c, i);
     *c = tmp;
     return r;
 }
@@ -187,15 +206,6 @@ atom_t *cons(atom_t *x, atom_t *y) {
     //free(x);
     //free(y);
     return adup(&a);
-}
-
-// ignore \0
-char *istrchr(char *s, int c, int e) {
-    for(; s[0] != e; s++) {
-        if(s[0] == c) {
-            return s;
-        }
-    }
 }
 
 void jump(state_t *s, char **p) {
@@ -316,7 +326,7 @@ void run(state_t *s, char *prog) {
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
             CASE(CALL,  push(s, eval(pop(s), &env)));
-            CASE(POP,   destroy_atom (pop(s)));
+            CASE(POP,   a = pop(s); destroy_atom (&a));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
