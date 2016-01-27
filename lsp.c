@@ -80,43 +80,40 @@ state_t init_state() {
 }
                       // TODO: put prototypes here
 int isnil(atom_t *t); // GO AWAY WARNING
-void destroy_atom(atom_t **a) {
-    atom_t *b = *a;
-    if(isnil(b) || b == NULL) return;
-    switch(b->type) {
+void destroy_atom(atom_t *a) {
+    if(isnil(a) || a == NULL) return;
+    switch(a->type) {
         case NUM:
-            free(b);
-            b = nil;
+            free(a);
+            a = nil;
             break;
         case SYM:
-            free(b->sym); // free malloced string
-            //TODO: free(a);
-            b = nil;
+            free(a->sym); // free malloced string
+            free(a);
+            a = nil;
             break;
         case CONS:
-            destroy_atom(&(b->car));
-            b->car = nil;
-            if(b->cdr != nil) {
-                destroy_atom(&(b->cdr));
+            destroy_atom(a->car);
+            a->car = nil;
+            if(a->cdr != nil) {
+                destroy_atom(a->cdr);
             }
-            if(b != nil)
+            if(a != nil)
             {
-                free(b);
-                b = nil;
+                free(a);
+                a = nil;
             }
             break;
     }
 }
 
 void destroy_state(state_t *s) {
-    atom_t *i = s->atoms + 1;
+    atom_t *i = s->atoms;
     while(i < s->sp)
     {
-        destroy_atom(&i);
-        i++;
+        destroy_atom(i++);
     }
     free(s->atoms);
-    s->atoms = NULL;
 }
 
 void push(state_t *s, atom_t *v) {
@@ -184,7 +181,7 @@ char *gettok(char **c) {
     char *tmp = istrchr(*c, '\x0', '\x7f');
     size_t i = (size_t) (tmp - *c);
     char *r = malloc(i);
-    memcpy(r, *c, i);
+    memcpy(r, (*c) + 1, i);
     *c = tmp;
     return r;
 }
@@ -202,9 +199,6 @@ atom_t *num(int v) {
 
 atom_t *cons(atom_t *x, atom_t *y) {
     atom_t a = {.type = CONS, .car = adup(x), .cdr = adup(y)};
-    //TODO:
-    //free(x);
-    //free(y);
     return adup(&a);
 }
 
@@ -326,7 +320,7 @@ void run(state_t *s, char *prog) {
             CASE(CAR,   push(s, adup(car(TOPATOM))));
             CASE(CDR,   push(s, adup(cdr(TOPATOM))));
             CASE(CALL,  push(s, eval(pop(s), &env)));
-            CASE(POP,   a = pop(s); destroy_atom (&a));
+            CASE(POP,   a = pop(s); destroy_atom (a));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
@@ -341,16 +335,17 @@ int main(void) {
         // (def a 312)
         "\x5"           // push nil
         "\x2" "312\x0"  // push num
-        "\x3"           // push cons
-        "\x1" "a\x0"    // push sym
-        "\x3"           // push cons
-        "\x1" "def\x0"  // push sym
-        "\x3"           // push cons
-        "\xC"           // call top
+        //"\x3"           // push cons
+        //"\x1" "a\x0"    // push sym
+        //"\x3"           // push cons
+        //"\x1" "def\x0"  // push sym
+        //"\x3"           // push cons
+        //"\x6"
+        //"\xC"           // call top
 
         // a
-        "\x1" "a\x0"
-        "\xC"
+        //"\x1" "a\x0"
+        //"\xC"
         "\x7f";
 
     run(&s, prog);
