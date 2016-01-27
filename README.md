@@ -8,3 +8,6 @@ minimal lisp implementation
 # To be implemented
 - Parser (will be bootstrapped)
 - Standard libraries
+
+# Bugs
+- err... don't get me started

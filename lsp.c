@@ -6,6 +6,7 @@
 #include <assert.h>
 
 #define STACK_SIZE 1024
+#define FIRST_ATOM (s->atoms + 1)
 
 #define P(a) print_atom(a); printf("\n");
 #define error(args...) do { fprintf(stderr, args); exit(1); } while (0)
@@ -63,9 +64,8 @@ typedef struct atom {
 } atom_t;
 
 typedef struct state {
-    atom_t *atoms;
-    atom_t *sp;
-    atom_t *fp;
+    atom_t **atoms;
+    atom_t **sp;
     size_t size;
 } state_t;
 
@@ -74,8 +74,9 @@ atom_t *nil;
 state_t init_state() {
     state_t s;
     s.size = STACK_SIZE;
-    s.atoms = malloc(sizeof(atom_t) * s.size);
-    s.sp = s.fp = s.atoms;
+    s.atoms = malloc(sizeof(atom_t *) * s.size);
+    s.sp = s.atoms;
+
     return s;
 }
                       // TODO: put prototypes here
@@ -108,22 +109,21 @@ void destroy_atom(atom_t *a) {
 }
 
 void destroy_state(state_t *s) {
-    atom_t *i = s->atoms;
-    while(i < s->sp)
+    atom_t **i = FIRST_ATOM;
+    while(i <= s->sp)
     {
-        destroy_atom(i++);
+        destroy_atom(*(i++));
     }
     free(s->atoms);
 }
 
 void push(state_t *s, atom_t *v) {
-    memcpy(s->sp, v, sizeof(atom_t));
     s->sp++;
+    *(s->sp) = v;
 }
 
 atom_t *pop(state_t *s) {
-    s->sp--;
-    return s->sp;
+    return *(s->sp--);
 }
 
 atom_t *adup(atom_t *a) {
@@ -159,10 +159,10 @@ void print_atom(atom_t *a) {
 
 void dump_state(state_t *s) {
     puts("--- state dump ---");
-    for(atom_t *o = s->atoms; o < s->sp; o++)
+    for(atom_t **o = FIRST_ATOM; o <= s->sp; o++)
     {
-        printf("%08p" GAP, o);
-        P(o);
+        printf("%08p" GAP, *o);
+        P(*o);
     }
     puts("--- finished dump ---");
 }
@@ -229,8 +229,6 @@ void fjump(state_t *s, char **p) {
 }
 
 void fficall(state_t *s, char **p) { /* TODO: implement */ }
-
-#define TOPATOM (s->sp - 1)
 
 atom_t *car(atom_t *a) {
     if(a->type == CONS)
@@ -317,8 +315,8 @@ void run(state_t *s, char *prog) {
             CASE(TJUMP, tjump  (s, &c));
             CASE(FJUMP, fjump  (s, &c));
             CASE(FFI,   fficall(s, &c));
-            CASE(CAR,   push(s, adup(car(TOPATOM))));
-            CASE(CDR,   push(s, adup(cdr(TOPATOM))));
+            CASE(CAR,   push(s, adup(car(*(s->sp)))));
+            CASE(CDR,   push(s, adup(cdr(*(s->sp)))));
             CASE(CALL,  push(s, eval(pop(s), &env)));
             CASE(POP,   a = pop(s); destroy_atom (a));
             default:
@@ -328,20 +326,22 @@ void run(state_t *s, char *prog) {
 }
 
 int main(void) {
+    // set nil
     atom_t a = {.type = CONS, .car = NULL, .cdr = NULL};
     nil = &a;
+
     state_t s = init_state();
     char *prog =
         // (def a 312)
         "\x5"           // push nil
         "\x2" "312\x0"  // push num
-        //"\x3"           // push cons
-        //"\x1" "a\x0"    // push sym
-        //"\x3"           // push cons
-        //"\x1" "def\x0"  // push sym
-        //"\x3"           // push cons
-        //"\x6"
-        //"\xC"           // call top
+        "\x3"           // push cons
+        "\x1" "a\x0"    // push sym
+        "\x3"           // push cons
+        "\x1" "def\x0"  // push sym
+        "\x3"           // push cons
+        "\x6"
+        "\xC"           // call top
 
         // a
         //"\x1" "a\x0"
