@@ -81,38 +81,33 @@ state_t init_state() {
 }
                       // TODO: put prototypes here
 int isnil(atom_t *t); // GO AWAY WARNING
-void destroy_atom(atom_t *a) {
+void destroy_atom(atom_t *a, int fulldestroy) {
     if(isnil(a) || a == NULL) return;
     switch(a->type) {
         case NUM:
-            free(a);
-            a = nil;
             break;
         case SYM:
             free(a->sym); // free malloced string
-            free(a);
-            a = nil;
             break;
         case CONS:
-            destroy_atom(a->car);
-            a->car = nil;
-            if(a->cdr != nil) {
-                destroy_atom(a->cdr);
-            }
-            if(a != nil)
-            {
-                free(a);
-                a = nil;
+            // fulldestroy will destroy all cons
+            if(fulldestroy) {
+                destroy_atom(a->car, 1);
+                if(a->cdr != nil) {
+                    destroy_atom(a->cdr, 1);
+                }
             }
             break;
     }
+    free(a);
+    a = nil;
 }
 
 void destroy_state(state_t *s) {
     atom_t **i = FIRST_ATOM;
     while(i <= s->sp)
     {
-        destroy_atom(*(i++));
+        destroy_atom(*(i++), 1);
     }
     free(s->atoms);
 }
@@ -199,6 +194,9 @@ atom_t *num(int v) {
 
 atom_t *cons(atom_t *x, atom_t *y) {
     atom_t a = {.type = CONS, .car = adup(x), .cdr = adup(y)};
+    // TODO: figure this out
+    //destroy_atom(x, 0);
+    //destroy_atom(y, 0);
     return adup(&a);
 }
 
@@ -318,7 +316,7 @@ void run(state_t *s, char *prog) {
             CASE(CAR,   push(s, adup(car(*(s->sp)))));
             CASE(CDR,   push(s, adup(cdr(*(s->sp)))));
             CASE(CALL,  push(s, eval(pop(s), &env)));
-            CASE(POP,   a = pop(s); destroy_atom (a));
+            CASE(POP,   a = pop(s); destroy_atom (a, 1));
             default:
             error("UNKNOWN OPCODE: 0x%x\n", c[0]);
         } c++;
@@ -340,12 +338,11 @@ int main(void) {
         "\x3"           // push cons
         "\x1" "def\x0"  // push sym
         "\x3"           // push cons
-        "\x6"
         "\xC"           // call top
 
         // a
-        //"\x1" "a\x0"
-        //"\xC"
+        "\x1" "a\x0"
+        "\xC"
         "\x7f";
 
     run(&s, prog);
