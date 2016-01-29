@@ -25,20 +25,20 @@
 // an environment list
 // stack
 
-typedef enum opcode {
-    NOP   = 0x0,
+typedef enum opcode { NOP   = 0x0,
     PUSHA = 0x1, // push atom
     PUSHN = 0x2, // push number
     PUSHC = 0x3, // push cons
-    PUSHL = 0x4, // push lambda
     PUSH0 = 0x5, // push null
     POP   = 0x6,
-    JUMP  = 0x7,
-    TJUMP = 0x8, // true jump
-    FJUMP = 0x9, // false jump
+
     CAR   = 0xA,
     CDR   = 0xB,
-    CALL  = 0xC, // call the top of the stack
+
+    QUOTE = 0xC,
+    ATOM  = 0xD,
+    EQ    = 0xE,
+    COND  = 0xF,
 
     ///
 
@@ -55,6 +55,7 @@ typedef enum a_type {
 typedef struct atom {
     a_type type;
     union {
+        struct atom * (*func)(struct atom *a);
         int num;
         char *sym;
         struct {
@@ -79,8 +80,12 @@ state_t init_state() {
 
     return s;
 }
-                      // TODO: put prototypes here
-int isnil(atom_t *t); // GO AWAY WARNING
+
+int isnil(atom_t *t) {
+    if (t == NULL) return 1;
+    return t->car == NULL && t->cdr == NULL;
+}
+
 void destroy_atom(atom_t *a, int fulldestroy) {
     if(isnil(a) || a == NULL) return;
     switch(a->type) {
@@ -200,34 +205,6 @@ atom_t *cons(atom_t *x, atom_t *y) {
     return adup(&a);
 }
 
-void jump(state_t *s, char **p) {
-    char lab[2];
-    char *tmp = istrchr(*p, ':', EOP);
-    memcpy(&lab, tmp + 1, 2);
-    while(strncmp(tmp, lab, 2) != 0) {
-        tmp = strchr(tmp, ':');
-        memcpy(&lab, tmp, 2);
-    }
-    *p = tmp + 2;
-}
-
-int isnil(atom_t *t) {
-    if (t == NULL) return 1;
-    return t->car == NULL && t->cdr == NULL;
-}
-
-void tjump(state_t *s, char **p) {
-    atom_t *a = pop(s);
-    if(!isnil(a)) jump(s, p);
-}
-
-void fjump(state_t *s, char **p) {
-    atom_t *a = pop(s);
-    if(isnil(a)) jump(s, p);
-}
-
-void fficall(state_t *s, char **p) { /* TODO: implement */ }
-
 atom_t *car(atom_t *a) {
     if(a->type == CONS)
         return a->car;
@@ -247,40 +224,22 @@ atom_t *eq(atom_t *a, atom_t *b) {
             if(a->num == b->num) return sym(strdup("t"));
         case SYM:
             if(strcmp(a->sym, b->sym) == 0) return sym(strdup("t"));
-    }
-    return nil;
-}
-
-atom_t *assoc(atom_t *key, atom_t *alist) {
-    if(isnil(alist)) return nil;
-    if(!isnil(eq(car(car(alist)), key))) return cdr(car(alist));
-    return assoc(key, cdr(alist));
-}
-
-#define SYMEQ(a, s) (strcmp(a->sym, s) == 0)
-
-atom_t *insert(atom_t **alist, atom_t *e) {
-    *alist = cons(e, *alist);
-    return *alist;
-}
-
-atom_t *eval(atom_t *e, atom_t **env) {
-    atom_t *t;
-    if(isnil(e)) return e;
-    switch(e->type) {
-        case NUM:
-            return e;
-        case SYM:
-            t = assoc(e, *env);
-            if(isnil(t)) error("unbound symbol '%s'\n", t->sym);
-            return cdr(t);
         case CONS:
-            // TODO: bootstrap anything in here
-            if(SYMEQ(car(e), "def")) {
-                *env = insert(env, cons(car(cdr(e)), eval(car(cdr(cdr(e))), env)));
+            if(eq(a->car, b->car)) {
+                return eq(a->cdr, b->cdr);
+            } else {
+                return nil;
             }
     }
     return nil;
+}
+
+atom_t *isatom(atom_t *a) {
+    if(a->type == SYM || a->type == NUM) {
+        return sym(strdup("t"));
+    } else {
+        return nil;
+    }
 }
 
 #define CASE(en, b) \
@@ -288,38 +247,42 @@ atom_t *eval(atom_t *e, atom_t **env) {
 b; \
 break;
 
+void eval(state_t *s, char **c) {
+    char *t;
+    atom_t *a;
+    atom_t *x;
+    atom_t *y;
+    switch((*c)[0]) {
+        // TODO: do not reference prog directly
+        CASE(NOP, NULL);
+        CASE(PUSHA, push(s, sym(gettok(c))));
+        CASE(PUSHN,
+                t = gettok(c);
+                push(s, num(atoi(t)));
+                free(t));
+        CASE(PUSHC,
+                x = pop(s);
+                y = pop(s);
+                push(s, cons(x, y)));
+        CASE(PUSH0,
+                push(s, nil));
+        CASE(CAR,   push(s, adup(car(*(s->sp)))));
+        CASE(CDR,   push(s, adup(cdr(*(s->sp)))));
+        CASE(POP,   a = pop(s); destroy_atom (a, 1));
+        CASE(QUOTE, push(s, cdr(*(s->sp))));
+        CASE(ATOM,  push(s, isatom(*(s->sp))));
+        //CASE(COND,  push(s, );
+                default:
+                error("UNKNOWN OPCODE: 0x%x\n", (*c)[0]);
+    }
+    (*c)++;
+}
+
 void run(state_t *s, char *prog) {
     char *c = prog;
     atom_t *env = nil;
     while(c[0] != EOP) {
-        atom_t *a;
-        atom_t *x;
-        atom_t *y;
-        char *t;
-        switch(c[0]) {
-            // TODO: do not reference prog directly
-            CASE(NOP, NULL);
-            CASE(':', c+=2); // skip label
-            CASE(PUSHA, push(s, sym(gettok(&c))));
-            CASE(PUSHN, t = gettok(&c);
-                    push(s, num(atoi(t)));
-                    free(t));
-            CASE(PUSHC,
-                    x = pop(s);
-                    y = pop(s);
-                    push(s, cons(x, y)));
-            CASE(PUSH0, push(s, nil));
-            CASE(JUMP,  jump   (s, &c));
-            CASE(TJUMP, tjump  (s, &c));
-            CASE(FJUMP, fjump  (s, &c));
-            CASE(FFI,   fficall(s, &c));
-            CASE(CAR,   push(s, adup(car(*(s->sp)))));
-            CASE(CDR,   push(s, adup(cdr(*(s->sp)))));
-            CASE(CALL,  push(s, eval(pop(s), &env)));
-            CASE(POP,   a = pop(s); destroy_atom (a, 1));
-            default:
-            error("UNKNOWN OPCODE: 0x%x\n", c[0]);
-        } c++;
+        eval(s, &c);
     }
 }
 
@@ -338,11 +301,20 @@ int main(void) {
         "\x3"           // push cons
         "\x1" "def\x0"  // push sym
         "\x3"           // push cons
-        "\xC"           // call top
 
         // a
         "\x1" "a\x0"
-        "\xC"
+
+        // (if 'a 'a 'b)
+        "\x5"
+        "\x1" "b\x0"
+        "\x3"
+        "\x1" "a\x0"
+        "\x3"
+        "\x5"
+        "\x3"
+        "\x1" "if\x0"
+        "\x3"
         "\x7f";
 
     run(&s, prog);
