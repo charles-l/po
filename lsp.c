@@ -5,9 +5,9 @@
 #include <string.h>
 #include <assert.h>
 
-// quote, atom, eq, car, cdr, cons, and cond
-
 #define P(a) print_atom(a); printf("\n");
+
+// adapted from: http://nakkaya.com/2010/08/24/a-micro-manual-for-lisp-implemented-in-c/
 
 enum type {CONS, ATOM, LAMBDA, FFI};
 
@@ -22,6 +22,9 @@ typedef struct atom {
         };
     };
 } atom;
+
+const atom nil = {.type = ATOM, .car = NULL, .cdr = NULL};
+const atom tee = {.type = ATOM, .sym = "t"};
 
 void print_atom(atom *a) {
     if(a == NULL) {printf("null"); return;}
@@ -45,9 +48,6 @@ void print_atom(atom *a) {
     }
 }
 
-const atom nil = {.type = ATOM, .car = NULL, .cdr = NULL};
-const atom tee = {.type = ATOM, .sym = "t"};
-
 atom *adup(atom *a) {
     atom *r = malloc(sizeof(atom));
     memcpy(r, a, sizeof(atom));
@@ -65,7 +65,7 @@ atom *ncons(atom *a, atom *b) {
     return adup(&r);
 }
 
-atom *nffi(atom *(*func)(atom *)) {
+atom *nffi(atom *(*func)(atom *, atom *)) {
     atom r = (atom){.type = FFI, .func = func};
     return adup(&r);
 }
@@ -85,7 +85,7 @@ atom *is_atom(atom *a, atom *env) {
     return &nil;
 }
 
-const atom *eq(atom *a, atom *env) {
+atom *eq(atom *a, atom *env) {
     if(a->car == NULL && a->cdr->car == NULL) return &tee;
     if(a->car != a->cdr->car) return &nil;
     switch(a->car->type) {
@@ -110,7 +110,7 @@ int isnil(atom *a, atom *env) {
 }
 
 atom *eval(atom *sexp, atom *env);
-const atom *cond(atom *l, atom *env) {
+atom *cond(atom *l, atom *env) {
     if(l == NULL) return &nil;
     if(l->cdr) {
         if (eval(l->car, env)) return l->cdr;
@@ -146,19 +146,18 @@ atom *append(atom *l, atom *a) {
 }
 
 atom *eval_fn(atom *sexp, atom *env) {
-    atom *s = sexp->car;
-    atom *a = sexp->cdr;
+    atom *s = sexp->cdr;
+    atom *a = sexp->car;
     if(s->type == LAMBDA) {
         return nlambda(sexp, env);
-    } else if(s->type == FFI){
-        P(s);
-        return(((atom *) s)->func)(a, env);
+    } else if(s->car->type == FFI){
+        return(((atom *) s)->car->func)(a, env);
     }
 }
 
 atom *eval(atom *sexp, atom *env) {
     if(sexp == NULL)
-        return;
+        return &nil;
 
     if(sexp->type == CONS) {
         if(sexp->car->type == ATOM && strcmp(sexp->car->sym, "lam") == 0) {
@@ -168,7 +167,7 @@ atom *eval(atom *sexp, atom *env) {
             sexp = sexp->cdr;
 
             while (sexp != NULL && sexp->type == CONS){
-                append(a, eval(sexp->car,env));
+                a = append(a, eval(sexp->car,env));
                 sexp = sexp->cdr;
             }
 
