@@ -1,2 +1,2 @@
 all:
-	cc -g -o lsp lsp.c
+	cc -g -o pukpo pukpo.c

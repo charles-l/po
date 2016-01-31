@@ -5,7 +5,35 @@
 #include <string.h>
 #include <assert.h>
 
-#define P(a) print_atom(a); printf("\n");
+// taken from stb
+void stb_replaceinplace(char *src, char *find, char *replace)
+{
+    size_t len_find = strlen(find);
+    size_t len_replace = strlen(replace);
+    int delta;
+
+    char *s,*p,*q;
+
+    delta = len_replace - len_find;
+    assert(delta <= 0);
+    if (delta > 0) return;
+
+    p = strstr(src, find);
+    if (p == NULL) return;
+
+    s = q = p;
+    while (*s) {
+        memcpy(q, replace, len_replace);
+        p += len_find;
+        q += len_replace;
+        s = strstr(p, find);
+        if (s == NULL) s = p + strlen(p);
+        memmove(q, p, s-p);
+        q += s-p;
+        p = s;
+    }
+    *q = 0;
+}
 
 // adapted from: http://nakkaya.com/2010/08/24/a-micro-manual-for-lisp-implemented-in-c/
 
@@ -23,8 +51,8 @@ typedef struct atom {
     };
 } atom;
 
-const atom nil = {.type = ATOM, .car = NULL, .cdr = NULL};
-const atom tee = {.type = ATOM, .sym = "t"};
+atom nil = {.type = ATOM, .car = NULL, .cdr = NULL};
+atom tee = {.type = ATOM, .sym = "t"};
 
 void print_atom(atom *a) {
     if(a == NULL) {printf("null"); return;}
@@ -48,17 +76,20 @@ void print_atom(atom *a) {
     }
 }
 
+#define P(a) print_atom(a); printf("\n");
+
+//// constructors
+
 atom *adup(atom *a) {
     atom *r = malloc(sizeof(atom));
     memcpy(r, a, sizeof(atom));
     return r;
 }
 
-atom *natom(char *sym) {
-    atom r = (atom){.type = ATOM, .sym = strdup(sym)};
+atom *natom(char *sym) { // assume sym is going to be sticking around
+    atom r = (atom){.type = ATOM, .sym = sym};
     return adup(&r);
 }
-
 // as opposed to `cons`, this func is used internally
 atom *ncons(atom *a, atom *b) {
     atom r = (atom){.type = CONS, .car = a, .cdr = b};
@@ -75,13 +106,15 @@ atom *nlambda(atom *args, atom *sexp) {
     return adup(&r);
 }
 
+//// internal
+
 atom *quote(atom *l, atom *env) {
     return l;
 }
 
 atom *is_atom(atom *a, atom *env) {
-    if(a == NULL) return &nil;
-    if(a->type == ATOM) return &tee;
+    if(a == NULL || a->car == NULL) return &nil;
+    if(a->car->type == ATOM) { return &tee; }
     return &nil;
 }
 
@@ -100,13 +133,6 @@ atom *eq(atom *a, atom *env) {
 
 atom *cons(atom *l, atom *env) {
     return ncons(l->cdr, l->car);
-}
-
-int isnil(atom *a, atom *env) {
-    if(a->type == CONS) {
-        if (a->car == NULL) return 1;
-    }
-    return 0;
 }
 
 atom *eval(atom *sexp, atom *env);
@@ -131,27 +157,34 @@ atom *cdr(atom *a, atom *env) {
     return a->cdr;
 }
 
+//// utility
+
 atom *lookup(atom *a, char *nm) {
     if(a == NULL || a->car == NULL) return NULL;
-    if(a->car->car->type == ATOM && strcmp(a->car->car->sym, nm) == 0) {
+    if(a->car->car->type == ATOM && strcmp(a->car->car->sym, nm) == 0)
         return a->car->cdr;
-    }
     if(a->cdr != NULL)
         return lookup(a->cdr, nm);
     return NULL;
 }
 
 atom *append(atom *l, atom *a) {
-    return ncons(a, l);
+    atom *p = l;
+    while (p->cdr != NULL) {
+        p = p->cdr;
+    }
+    p->cdr = ncons(a, NULL);
+    p = l;
+    return ncons(l->car, p->cdr);
 }
 
 atom *eval_fn(atom *sexp, atom *env) {
-    atom *s = sexp->cdr;
-    atom *a = sexp->car;
+    atom *s = sexp->car;
+    atom *a = sexp->cdr;
     if(s->type == LAMBDA) {
         return nlambda(sexp, env);
-    } else if(s->car->type == FFI){
-        return(((atom *) s)->car->func)(a, env);
+    } else if(s->type == FFI){
+        return(s->func)(a, env);
     }
 }
 
@@ -184,6 +217,28 @@ atom *eval(atom *sexp, atom *env) {
 
 }
 
+char *nexttok(char **p) {
+    return strsep(p, " ");
+}
+
+atom *parse(char **p) {
+    atom *a, *b;
+    char *t = nexttok(p);
+    if(t == NULL) return NULL;
+    switch(t[0]) {
+        case ')':
+            return NULL;
+        case '(':
+            a = parse(p);
+            b = parse(p);
+            return ncons(a, b);
+        default:
+            a = natom(t);
+            b = parse(p);
+            return ncons(a, b);
+    }
+}
+
 int main(void) {
     atom *env = ncons(ncons(natom("quote"),nffi(&quote)), NULL);
     env = append(env, ncons(natom("atom?"), nffi(&is_atom)));
@@ -192,7 +247,9 @@ int main(void) {
     env = append(env, ncons(natom("cdr"), nffi(&cdr)));
     env = append(env, ncons(natom("cons"), nffi(&cons)));
     env = append(env, ncons(natom("cond"), nffi(&cond)));
-    P(env);
-    P(ncons(natom("atom?"), ncons(natom("a"), NULL)));
-    P(eval(ncons(natom("atom?"), ncons(natom("a"), NULL)), env));
+
+    char *a = strdup("( atom? c )");
+    atom *r = parse(&a);
+    P(r);
+    P(eval(r, env));
 }

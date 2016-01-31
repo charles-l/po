@@ -11,9 +11,10 @@ class ListPrintCommand(gdb.Command):
 
     def print_atom(self, a):
         if a == 0x0:
+            print("null", end='')
             return
         if str(a['type']) == 'ATOM':
-            print("%s" % (a['sym'].string()), end='')
+            print('%s' % (a['sym'].string()), end='')
         elif str(a['type']) == 'CONS':
             print("(", end='')
             self.print_atom(a['car'])
