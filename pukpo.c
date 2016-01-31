@@ -185,6 +185,8 @@ atom *eval_fn(atom *sexp, atom *env) {
         return nlambda(sexp, env);
     } else if(s->type == FFI){
         return(s->func)(a, env);
+    } else {
+        return sexp;
     }
 }
 
@@ -214,7 +216,6 @@ atom *eval(atom *sexp, atom *env) {
             return v;
         }
     }
-
 }
 
 char *nexttok(char **p) {
@@ -248,7 +249,7 @@ int main(void) {
     env = append(env, ncons(natom("cons"), nffi(&cons)));
     env = append(env, ncons(natom("cond"), nffi(&cond)));
 
-    char *a = strdup("( atom? c )");
+    char *a = strdup("( quote 1 2 )");
     atom *r = parse(&a);
     P(r);
     P(eval(r, env));
