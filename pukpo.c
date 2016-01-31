@@ -115,7 +115,7 @@ atom *nlambda(atom *args, atom *sexp) {
     return adup(&r);
 }
 
-//// internal
+//// builtins
 
 atom *quote(atom *l, atom *env) {
     return l;
@@ -231,22 +231,29 @@ char *nexttok(char **p) {
     return strsep(p, " ");
 }
 
-atom *parse(char **p) {
+atom *parse_rest(char **p) {
     atom *a, *b;
     char *t = nexttok(p);
-    if(t == NULL) return NULL;
+
     switch(t[0]) {
         case ')':
             return NULL;
         case '(':
-            a = parse(p);
-            b = parse(p);
+            a = parse_rest(p);
+            b = parse_rest(p);
             return ncons(a, b);
         default:
             a = natom(t);
-            b = parse(p);
+            b = parse_rest(p);
             return ncons(a, b);
     }
+}
+
+atom *parse(char **p) {
+    char *t = nexttok(p);
+    if(t[0] == '(')
+        return parse_rest(p);
+    return natom(t);
 }
 
 int main(void) {
@@ -258,10 +265,11 @@ int main(void) {
     env = append(env, ncons(natom("cons"), nffi(&cons)));
     env = append(env, ncons(natom("cond"), nffi(&cond)));
 
-    char *a = strdup("( quote 1 2 )");
+    char *a = strdup("( car ( quote 1 2 ) )");
     atom *r = parse(&a);
-    P(r);
+
     P(eval(r, env));
+
     adel(r);
     free(a);
 }
