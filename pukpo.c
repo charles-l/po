@@ -159,11 +159,11 @@ atom *cond(atom *l, atom *env) {
 }
 
 atom *car(atom *a, atom *env) {
-    return a->car;
+    return a->car->car;
 }
 
 atom *cdr(atom *a, atom *env) {
-    return a->cdr;
+    return a->car->cdr;
 }
 
 //// utility
