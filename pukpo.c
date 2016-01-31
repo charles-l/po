@@ -86,6 +86,15 @@ atom *adup(atom *a) {
     return r;
 }
 
+void adel(atom *a) {
+    if(a == NULL) return;
+    if(a->type == CONS) {
+            adel(a->car);
+            adel(a->cdr);
+    }
+    free(a);
+}
+
 atom *natom(char *sym) { // assume sym is going to be sticking around
     atom r = (atom){.type = ATOM, .sym = sym};
     return adup(&r);
@@ -253,4 +262,6 @@ int main(void) {
     atom *r = parse(&a);
     P(r);
     P(eval(r, env));
+    adel(r);
+    free(a);
 }
