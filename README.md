@@ -1,13 +1,10 @@
-# lsp
+# pukpo
 minimal lisp implementation
 
 # What's implemented
-- Bytecode (mostly)
-- Stack machine (bytecode VM)
+- Basic parser
 
 # To be implemented
-- Parser (will be bootstrapped)
+- Bytecode?
+- Jit?
 - Standard libraries
-
-# Bugs
-- err... don't get me started
