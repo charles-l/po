@@ -124,19 +124,6 @@ atom *cons(atom *l, atom *env) {
     return ncons(l->car, l->cdr->car);
 }
 
-atom *cond(atom *l, atom *env) {
-    if(l == &nil) return &nil;
-    if(l->cdr) {
-        if (l->car) return l->cdr;
-    }
-    while(l = l->cdr) {
-        if(l->car == &tee) {
-            return l->cdr;
-        }
-    }
-    return &nil;
-}
-
 atom *car(atom *a, atom *env) {
     return a->car->car;
 }
@@ -191,15 +178,13 @@ atom *eval(atom *sexp, atom *env) {
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "cond") == 0) {
-            atom *l = sexp->cdr->car;
+            atom *l = sexp->cdr;
             if(l == &nil) return &nil;
-            if(l->cdr) {
-                if (l->car) return eval(l->cdr, env);
+            if(l->car != &nil) {
+                if (eval(l->car->car, env) == &tee) return eval(l->car->cdr->car, env);
             }
-            while(l = l->cdr) {
-                if(l->car == &tee) {
-                    return eval(l->cdr, env);
-                }
+            while((l = l->cdr) != &nil) {
+                if (eval(l->car->car, env) == &tee) return eval(l->car->cdr->car, env);
             }
             return &nil;
         } else {
@@ -293,8 +278,8 @@ int main(void) {
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
 
     char *p = "(cond \
-        ((atom? (quote (1 2 3))) (quote asdf))\
-        ((atom? (quote b)) (quote wassup)))";
+        ((atom? (quote (1 2 3))) (quote asdf asdf))\
+        ((atom? (quote b)) (quote a)))";
     atom *r = parse(&p);
     atom *s = eval(r, env);
 
