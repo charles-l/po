@@ -121,8 +121,7 @@ atom *eq(atom *a, atom *env) {
 }
 
 atom *cons(atom *l, atom *env) {
-    puts("HI");
-    return ncons(l->cdr->car, l->cdr->cdr);
+    return ncons(l->car, l->cdr->car);
 }
 
 atom *eval(atom *sexp, atom *env);
@@ -283,7 +282,7 @@ int main(void) {
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
     env = append(env, ncons(natom(strdup("cond")), nffi(&cond)));
 
-    char *p = "(eq? (quote b) (quote b))";
+    char *p = "(cons (quote a) (quote b))";
     atom *r = parse(&p);
     atom *s = eval(r, env);
 
