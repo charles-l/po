@@ -277,15 +277,18 @@ int main(void) {
     env = append(env, ncons(natom(strdup("cdr")), nffi(&cdr)));
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
 
-    char *p = "(cond \
-        ((atom? (quote (1 2 3))) (quote asdf asdf))\
-        ((atom? (quote b)) (quote a)))";
-    atom *r = parse(&p);
-    atom *s = eval(r, env);
+#define MAX_LINE_LEN 128
+    char *p = malloc(MAX_LINE_LEN);
+    while(1) {
+        printf("> ");
+        fgets(p, MAX_LINE_LEN, stdin);
+        atom *r = parse(&p);
+        atom *s = eval(r, env);
+        P(s);
+        adel(r);
+        adel(s);
+    }
+    free(p);
 
-    P(s);
-
-    adel(r);
-    adel(s);
     adel(env);
 }
