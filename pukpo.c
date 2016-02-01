@@ -24,28 +24,27 @@ typedef struct atom {
     };
 } atom;
 
-atom nil = {.type = ATOM, .car = NULL, .cdr = NULL};
+atom nil = {.type = ATOM, .car = &nil, .cdr = &nil};
 atom tee = {.type = ATOM, .sym = "t"};
 
 void print_atom(atom *a) {
-    if(a == NULL) {printf("null"); return;}
-    if(a == &nil) {printf("<nil>"); return;}
+    if(a == &nil) {fprintf(stderr, "<nil>"); return;}
     switch(a->type) {
         case ATOM:
-            printf("%s", a->sym);
+            fprintf(stderr, "%s", a->sym);
             break;
         case CONS:
-            printf("(");
+            fprintf(stderr, "(");
             print_atom(a->car);
-            printf(" ");
+            fprintf(stderr, " ");
             print_atom(a->cdr);
-            printf(")");
+            fprintf(stderr, ")");
             break;
         case LAMBDA:
-            printf("<l: %p>", a);
+            fprintf(stderr, "<l: %p>", a);
             break;
         case FFI:
-            printf("<ffi: %p>", a->func);
+            fprintf(stderr, "<ffi: %p>", a->func);
             break;
     }
 }
@@ -61,7 +60,7 @@ atom *adup(atom *a) {
 }
 
 void adel(atom *a) {
-    if(a == NULL) return;
+    if(a == NULL || a == &tee || a == &nil) return;
     if(a->type == ATOM) {
         free(a->sym);
     } else if(a->type == CONS) {
@@ -93,18 +92,14 @@ atom *nlambda(atom *args, atom *sexp) {
 
 //// builtins
 
-atom *quote(atom *l, atom *env) {
-    return l;
-}
-
 atom *is_atom(atom *a, atom *env) {
-    if(a == NULL || a->car == NULL) return &nil;
+    if(a == &nil || a->car == &nil) return &nil;
     if(a->car->type == ATOM) { return &tee; }
     return &nil;
 }
 
 atom *eq(atom *a, atom *env) {
-    if(a->car == NULL && a->cdr->car == NULL) return &tee;
+    if(a->car == &nil && a->cdr->car == &nil) return &tee;
     if(a->car != a->cdr->car) return &nil;
     switch(a->car->type) {
         case ATOM:
@@ -117,12 +112,13 @@ atom *eq(atom *a, atom *env) {
 }
 
 atom *cons(atom *l, atom *env) {
-    return ncons(l->cdr, l->car);
+    puts("HI");
+    return ncons(l->cdr->car, l->cdr->cdr);
 }
 
 atom *eval(atom *sexp, atom *env);
 atom *cond(atom *l, atom *env) {
-    if(l == NULL) return &nil;
+    if(l == &nil) return &nil;
     if(l->cdr) {
         if (eval(l->car, env)) return l->cdr;
     }
@@ -145,20 +141,20 @@ atom *cdr(atom *a, atom *env) {
 //// utility
 
 atom *lookup(atom *a, char *nm) {
-    if(a == NULL || a->car == NULL) return NULL;
+    if(a == &nil || a->car == &nil) return &nil;
     if(a->car->car->type == ATOM && strcmp(a->car->car->sym, nm) == 0)
         return a->car->cdr;
-    if(a->cdr != NULL)
+    if(a->cdr != &nil)
         return lookup(a->cdr, nm);
-    return NULL;
+    return &nil;
 }
 
 atom *append(atom *l, atom *a) {
     atom *p = l;
-    while (p->cdr != NULL) {
+    while (p->cdr != &nil) {
         p = p->cdr;
     }
-    p->cdr = ncons(a, NULL);
+    p->cdr = ncons(a, &nil);
     p = l;
     return ncons(l->car, p->cdr);
 }
@@ -171,22 +167,27 @@ atom *eval_fn(atom *sexp, atom *env) {
     } else if(s->type == FFI){
         return(s->func)(a, env);
     } else {
-        errx(1, "unbound symbol %s", sexp->car->car->sym);
+        // TODO: think of better error handling
+        fprintf(stderr, "symbol unbound: ");
+        P(sexp->car);
+        return &nil; // error
     }
 }
 
 atom *eval(atom *sexp, atom *env) {
-    if(sexp == NULL)
+    if(sexp == &nil)
         return &nil;
 
     if(sexp->type == CONS) {
         if(sexp->car->type == ATOM && strcmp(sexp->car->sym, "lam") == 0) {
             return nlambda(sexp->car->cdr, sexp->cdr->cdr->car);
+        } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
+            return sexp->cdr->car;
         } else {
-            atom *a = ncons(eval(sexp->car, env), NULL);
+            atom *a = ncons(eval(sexp->car, env), &nil);
             sexp = sexp->cdr;
 
-            while (sexp != NULL && sexp->type == CONS){
+            while (sexp != &nil && sexp->type == CONS){
                 a = append(a, eval(sexp->car,env));
                 sexp = sexp->cdr;
             }
@@ -195,7 +196,7 @@ atom *eval(atom *sexp, atom *env) {
         }
     } else {
         atom *v = lookup(env, sexp->sym);
-        if(v == NULL) {
+        if(v == &nil) {
             return sexp;
         } else {
             return v;
@@ -243,7 +244,7 @@ atom *parse_rest(char **p) {
     switch(t[0]) {
         case ')':
             free(t);
-            return NULL;
+            return &nil;
         case '(':
             free(t);
             a = parse_rest(p);
@@ -266,15 +267,14 @@ atom *parse(char **p) {
 }
 
 int main(void) {
-    atom *env = ncons(ncons(natom(strdup("quote")), nffi(&quote)), NULL);
-    env = append(env, ncons(natom(strdup("atom?")), nffi(&is_atom)));
+    atom *env = ncons(ncons(natom(strdup("atom?")), nffi(&is_atom)), &nil);
     env = append(env, ncons(natom(strdup("eq?")), nffi(&eq)));
     env = append(env, ncons(natom(strdup("car")), nffi(&car)));
     env = append(env, ncons(natom(strdup("cdr")), nffi(&cdr)));
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
     env = append(env, ncons(natom(strdup("cond")), nffi(&cond)));
 
-    char *p = "(quote 1)";
+    char *p = "(quote (this 'quote' won't get called!))";
     atom *r = parse(&p);
     atom *s = eval(r, env);
 
