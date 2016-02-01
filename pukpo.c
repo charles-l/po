@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
+#include <err.h>
 
 // taken from stb
 void stb_replaceinplace(char *src, char *find, char *replace)
@@ -56,6 +57,7 @@ atom tee = {.type = ATOM, .sym = "t"};
 
 void print_atom(atom *a) {
     if(a == NULL) {printf("null"); return;}
+    if(a == &nil) {printf("<nil>"); return;}
     switch(a->type) {
         case ATOM:
             printf("%s", a->sym);
@@ -195,7 +197,7 @@ atom *eval_fn(atom *sexp, atom *env) {
     } else if(s->type == FFI){
         return(s->func)(a, env);
     } else {
-        return sexp;
+        errx(1, "unbound symbol %s", sexp->car->car->sym);
     }
 }
 
@@ -265,7 +267,7 @@ int main(void) {
     env = append(env, ncons(natom("cons"), nffi(&cons)));
     env = append(env, ncons(natom("cond"), nffi(&cond)));
 
-    char *a = strdup("( car ( quote 1 2 ) )");
+    char *a = strdup("( quote 1 )");
     atom *r = parse(&a);
 
     P(eval(r, env));
