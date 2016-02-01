@@ -98,17 +98,26 @@ atom *is_atom(atom *a, atom *env) {
     return &nil;
 }
 
-atom *eq(atom *a, atom *env) {
-    if(a->car == &nil && a->cdr->car == &nil) return &tee;
-    if(a->car != a->cdr->car) return &nil;
-    switch(a->car->type) {
+int equal(atom *a, atom *b) {
+    if(a == &nil && b == &nil) return 1;
+    if(a->type != b->type) return 0;
+    switch(a->type) {
         case ATOM:
-            if(strcmp(a->car->sym, a->cdr->car->sym) == 0) return &tee;
+            if(strcmp(a->sym, b->sym) == 0) return 1;
         case CONS:
-            if(eq(a->car, a->cdr->car)) {
-                return eq(a->cdr, a->cdr->cdr);
-            }
+            if(equal(a->car, b->car))
+                return equal(a->cdr, b->cdr);
+            else
+                return 0;
     }
+    // fallback: equal pointer?
+    return a == b;
+}
+
+atom *eq(atom *a, atom *env) {
+    if(equal(a->car, a->cdr->car))
+        return &tee;
+    return &nil;
 }
 
 atom *cons(atom *l, atom *env) {
@@ -274,7 +283,7 @@ int main(void) {
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
     env = append(env, ncons(natom(strdup("cond")), nffi(&cond)));
 
-    char *p = "(quote (this 'quote' won't get called!))";
+    char *p = "(eq? (quote b) (quote b))";
     atom *r = parse(&p);
     atom *s = eval(r, env);
 
