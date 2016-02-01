@@ -1,2 +1,2 @@
 all:
-	cc -g -o pukpo pukpo.c
+	cc -g -o po po.c
