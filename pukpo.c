@@ -6,35 +6,7 @@
 #include <assert.h>
 #include <err.h>
 
-// taken from stb
-void stb_replaceinplace(char *src, char *find, char *replace)
-{
-    size_t len_find = strlen(find);
-    size_t len_replace = strlen(replace);
-    int delta;
-
-    char *s,*p,*q;
-
-    delta = len_replace - len_find;
-    assert(delta <= 0);
-    if (delta > 0) return;
-
-    p = strstr(src, find);
-    if (p == NULL) return;
-
-    s = q = p;
-    while (*s) {
-        memcpy(q, replace, len_replace);
-        p += len_find;
-        q += len_replace;
-        s = strstr(p, find);
-        if (s == NULL) s = p + strlen(p);
-        memmove(q, p, s-p);
-        q += s-p;
-        p = s;
-    }
-    *q = 0;
-}
+#define MAX_VAR_LEN 16
 
 // adapted from: http://nakkaya.com/2010/08/24/a-micro-manual-for-lisp-implemented-in-c/
 
@@ -90,9 +62,11 @@ atom *adup(atom *a) {
 
 void adel(atom *a) {
     if(a == NULL) return;
-    if(a->type == CONS) {
-            adel(a->car);
-            adel(a->cdr);
+    if(a->type == ATOM) {
+        free(a->sym);
+    } else if(a->type == CONS) {
+        adel(a->car);
+        adel(a->cdr);
     }
     free(a);
 }
@@ -229,8 +203,37 @@ atom *eval(atom *sexp, atom *env) {
     }
 }
 
+#define NEXTCHAR ((*p)++)
 char *nexttok(char **p) {
-    return strsep(p, " ");
+    char *a;
+    int i;
+    switch(*p[0]) {
+        case '\n':
+        case '\t':
+        case ' ':
+            NEXTCHAR;
+            return nexttok(p);
+        case '(':
+            NEXTCHAR; return strdup("(");
+        case ')':
+            NEXTCHAR; return strdup(")");
+        default:
+            a = malloc(MAX_VAR_LEN);
+            i = 0;
+            while(**p != '('
+                    && **p != ')'
+                    && **p != ' '
+                    && **p != '\n'
+                    && **p != '\t')
+            {
+                assert(i < MAX_VAR_LEN);
+                a[i++] = **p;
+                NEXTCHAR;
+            }
+            a[i] = '\0';
+            return a;
+    }
+    return NULL;
 }
 
 atom *parse_rest(char **p) {
@@ -239,8 +242,10 @@ atom *parse_rest(char **p) {
 
     switch(t[0]) {
         case ')':
+            free(t);
             return NULL;
         case '(':
+            free(t);
             a = parse_rest(p);
             b = parse_rest(p);
             return ncons(a, b);
@@ -253,25 +258,29 @@ atom *parse_rest(char **p) {
 
 atom *parse(char **p) {
     char *t = nexttok(p);
-    if(t[0] == '(')
+    if(t[0] == '(') {
+        free(t);
         return parse_rest(p);
+    }
     return natom(t);
 }
 
 int main(void) {
-    atom *env = ncons(ncons(natom("quote"),nffi(&quote)), NULL);
-    env = append(env, ncons(natom("atom?"), nffi(&is_atom)));
-    env = append(env, ncons(natom("eq?"), nffi(&eq)));
-    env = append(env, ncons(natom("car"), nffi(&car)));
-    env = append(env, ncons(natom("cdr"), nffi(&cdr)));
-    env = append(env, ncons(natom("cons"), nffi(&cons)));
-    env = append(env, ncons(natom("cond"), nffi(&cond)));
+    atom *env = ncons(ncons(natom(strdup("quote")), nffi(&quote)), NULL);
+    env = append(env, ncons(natom(strdup("atom?")), nffi(&is_atom)));
+    env = append(env, ncons(natom(strdup("eq?")), nffi(&eq)));
+    env = append(env, ncons(natom(strdup("car")), nffi(&car)));
+    env = append(env, ncons(natom(strdup("cdr")), nffi(&cdr)));
+    env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
+    env = append(env, ncons(natom(strdup("cond")), nffi(&cond)));
 
-    char *a = strdup("( quote 1 )");
-    atom *r = parse(&a);
+    char *p = "(quote 1)";
+    atom *r = parse(&p);
+    atom *s = eval(r, env);
 
-    P(eval(r, env));
+    P(s);
 
     adel(r);
-    free(a);
+    adel(s);
+    adel(env);
 }
