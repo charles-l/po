@@ -125,8 +125,6 @@ atom *cons(atom *l, atom *env) {
 }
 
 atom *cond(atom *l, atom *env) {
-    P(l);
-    puts("HI");
     if(l == &nil) return &nil;
     if(l->cdr) {
         if (l->car) return l->cdr;
@@ -193,7 +191,17 @@ atom *eval(atom *sexp, atom *env) {
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "cond") == 0) {
-            return sexp->cdr->car;
+            atom *l = sexp->cdr->car;
+            if(l == &nil) return &nil;
+            if(l->cdr) {
+                if (l->car) return eval(l->cdr, env);
+            }
+            while(l = l->cdr) {
+                if(l->car == &tee) {
+                    return eval(l->cdr, env);
+                }
+            }
+            return &nil;
         } else {
             atom *a = ncons(eval(sexp->car, env), &nil);
             sexp = sexp->cdr;
@@ -283,7 +291,6 @@ int main(void) {
     env = append(env, ncons(natom(strdup("car")), nffi(&car)));
     env = append(env, ncons(natom(strdup("cdr")), nffi(&cdr)));
     env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
-    env = append(env, ncons(natom(strdup("cond")), nffi(&cond)));
 
     char *p = "(cond \
         ((atom? (quote (1 2 3))) (quote asdf))\
