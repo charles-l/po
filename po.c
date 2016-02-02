@@ -153,6 +153,11 @@ atom *append(atom *l, atom *a) {
     return ncons(l->car, p->cdr);
 }
 
+atom *call_lam(atom *args, atom *env) {
+    atom *lam = args->car;
+    args = args->cdr;
+}
+
 atom *eval_fn(atom *sexp, atom *env) {
     atom *s = sexp->car;
     atom *a = sexp->cdr;
@@ -213,6 +218,9 @@ char *nexttok(char **p) {
     char *a;
     int i;
     switch(*p[0]) {
+        case '\0':
+        case EOF:
+            return NULL;
         case '\n':
         case '\t':
         case ' ':
@@ -261,16 +269,16 @@ atom *parse_rest(char **p) {
     }
 }
 
-atom *parse(char **p) {
-    char *t = nexttok(p);
+atom *parse(char *p) {
+    char *t = nexttok(&p);
     if(t[0] == '(') {
         free(t);
-        return parse_rest(p);
+        return parse_rest(&p);
     }
     return natom(t);
 }
 
-int main(void) {
+int main(int ac, char **av) {
     atom *env = ncons(ncons(natom(strdup("atom?")), nffi(&is_atom)), &nil);
     env = append(env, ncons(natom(strdup("eq?")), nffi(&eq)));
     env = append(env, ncons(natom(strdup("car")), nffi(&car)));
@@ -279,16 +287,20 @@ int main(void) {
 
 #define MAX_LINE_LEN 128
     char *p = malloc(MAX_LINE_LEN);
-    while(1) {
-        printf("> ");
-        fgets(p, MAX_LINE_LEN, stdin);
-        atom *r = parse(&p);
+    FILE *f = stdin;
+
+    if(ac > 1)
+        f = fopen(av[1], "r");
+
+    while(fgets(p, MAX_LINE_LEN, f) != NULL) {
+        atom *r = parse(p);
         atom *s = eval(r, env);
         P(s);
         adel(r);
         adel(s);
     }
-    free(p);
 
+    free(p);
     adel(env);
+    fclose(f);
 }
