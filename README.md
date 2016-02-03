@@ -1,19 +1,23 @@
 # po
 minimal lisp implementation
 
-# What's implemented
+## What's implemented
 - Basic parser
 
-# To be implemented
+### usage
+- run a file: `po test.p`
+- run repl: `po` (Ctrl-C to exit)
+
+## To be implemented
 - Bytecode?
 - Jit?
 - Profiler
 - Standard libraries
 
-# Bugs
+## Bugs
 - Not all memory is cleaned up right now
 
-# Tools
+## Tools
 
 To build:
 - C compiler
