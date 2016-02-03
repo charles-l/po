@@ -4,9 +4,11 @@
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
+#include <unistd.h>
 #include <err.h>
 
 #define MAX_VAR_LEN 16
+#define GUARD(cond, ...) if(!(cond)) {errx(EXIT_FAILURE, "" __VA_ARGS__);}
 
 // adapted from: http://nakkaya.com/2010/08/24/a-micro-manual-for-lisp-implemented-in-c/
 
@@ -302,8 +304,10 @@ int main(int ac, char **av) {
     char *p = malloc(MAX_LINE_LEN);
     FILE *f = stdin;
 
-    if(ac > 1)
+    if(ac > 1) {
+        GUARD(access(av[1], F_OK) != -1, "file '%s' does not exist", av[1]);
         f = fopen(av[1], "r");
+    }
 
     while(fgets(p, MAX_LINE_LEN, f) != NULL) {
         atom *r = parse(p);
