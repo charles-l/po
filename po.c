@@ -152,16 +152,31 @@ void append(atom **l, atom *a) {
     *l = p;
 }
 
+atom *splice(atom *a, atom *b) {
+    // this is crap
+    if(a->car == &nil || b->car == &nil) return &nil; // (<nil>, <nil>) instead?
+    atom *r = ncons(ncons(a->car, b->car), &nil);
+    while(a->cdr != &nil && b->cdr != &nil) {
+        a = a->cdr;
+        b = b->cdr;
+        append(&r, ncons(a->car, b->car));
+    }
+    return r;
+}
+
 atom *call_lam(atom *args, atom *env) {
+    // also crap
     atom *lam = args->car;
     args = args->cdr;
+    atom *list = splice(lam->car, args);
+    return list;
 }
 
 atom *eval_fn(atom *sexp, atom *env) {
     atom *s = sexp->car;
     atom *a = sexp->cdr;
     if(s->type == LAMBDA) {
-        return nlambda(sexp, env);
+        return call_lam(sexp, env);
     } else if(s->type == FFI){
         return(s->func)(a, env);
     } else {
@@ -178,7 +193,7 @@ atom *eval(atom *sexp, atom *env) {
 
     if(sexp->type == CONS) {
         if(sexp->car->type == ATOM && strcmp(sexp->car->sym, "lam") == 0) {
-            return nlambda(sexp->car->cdr, sexp->cdr->cdr->car);
+            return nlambda(sexp->cdr->car, sexp->cdr->cdr->car);
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "cond") == 0) {
