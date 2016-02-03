@@ -269,7 +269,7 @@ atom *parse_rest(char **p) {
 atom *parse(char *p) {
     char *t = nexttok(&p);
     if(t == NULL || t[0] == '\0') return &nil;
-    if(t[0] == ' ') parse(p);
+    if(t[0] == ' ') return parse(p);
     if(t[0] == '(') {
         return parse_rest(&p);
     }
