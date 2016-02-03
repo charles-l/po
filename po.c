@@ -143,14 +143,13 @@ atom *lookup(atom *a, char *nm) {
     return &nil;
 }
 
-atom *append(atom *l, atom *a) {
-    atom *p = l;
-    while (p->cdr != &nil) {
-        p = p->cdr;
+void append(atom **l, atom *a) {
+    atom *p = *l;
+    while ((*l)->cdr != &nil) {
+        *l = (*l)->cdr;
     }
-    p->cdr = ncons(a, &nil);
-    p = l;
-    return ncons(l->car, p->cdr);
+    (*l)->cdr = ncons(a, &nil);
+    *l = p;
 }
 
 atom *call_lam(atom *args, atom *env) {
@@ -197,7 +196,7 @@ atom *eval(atom *sexp, atom *env) {
             sexp = sexp->cdr;
 
             while (sexp != &nil && sexp->type == CONS){
-                a = append(a, eval(sexp->car,env));
+                append(&a, eval(sexp->car,env));
                 sexp = sexp->cdr;
             }
 
@@ -227,9 +226,9 @@ char *nexttok(char **p) {
             NEXTCHAR;
             return nexttok(p);
         case '(':
-            NEXTCHAR; return strdup("(");
+            NEXTCHAR; return "(";
         case ')':
-            NEXTCHAR; return strdup(")");
+            NEXTCHAR; return ")";
         default:
             a = malloc(MAX_VAR_LEN);
             i = 0;
@@ -255,10 +254,8 @@ atom *parse_rest(char **p) {
 
     switch(t[0]) {
         case ')':
-            free(t);
             return &nil;
         case '(':
-            free(t);
             a = parse_rest(p);
             b = parse_rest(p);
             return ncons(a, b);
@@ -271,8 +268,9 @@ atom *parse_rest(char **p) {
 
 atom *parse(char *p) {
     char *t = nexttok(&p);
+    if(t == NULL || t[0] == '\0') return &nil;
+    if(t[0] == ' ') parse(p);
     if(t[0] == '(') {
-        free(t);
         return parse_rest(&p);
     }
     return natom(t);
@@ -280,10 +278,10 @@ atom *parse(char *p) {
 
 int main(int ac, char **av) {
     atom *env = ncons(ncons(natom(strdup("atom?")), nffi(&is_atom)), &nil);
-    env = append(env, ncons(natom(strdup("eq?")), nffi(&eq)));
-    env = append(env, ncons(natom(strdup("car")), nffi(&car)));
-    env = append(env, ncons(natom(strdup("cdr")), nffi(&cdr)));
-    env = append(env, ncons(natom(strdup("cons")), nffi(&cons)));
+    append(&env, ncons(natom(strdup("eq?")), nffi(&eq)));
+    append(&env, ncons(natom(strdup("car")), nffi(&car)));
+    append(&env, ncons(natom(strdup("cdr")), nffi(&cdr)));
+    append(&env, ncons(natom(strdup("cons")), nffi(&cons)));
 
 #define MAX_LINE_LEN 128
     char *p = malloc(MAX_LINE_LEN);
@@ -296,7 +294,7 @@ int main(int ac, char **av) {
         atom *r = parse(p);
         atom *s = eval(r, env);
         P(s);
-        adel(r);
+        //adel(r);
         adel(s);
     }
 
