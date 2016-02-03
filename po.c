@@ -305,7 +305,14 @@ int main(int ac, char **av) {
     FILE *f = stdin;
 
     if(ac > 1) {
+#ifdef __linux__
+        // TODO: move this ifdef somewhere else to abstract the problem
         GUARD(access(av[1], F_OK) != -1, "file '%s' does not exist", av[1]);
+#elif _WIN32
+#error "no support for files on windows yet"
+#else
+#error "no support for your os yet"
+#endif
         f = fopen(av[1], "r");
     }
 
