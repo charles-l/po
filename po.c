@@ -268,6 +268,10 @@ char *nexttok(char **p) {
 atom *parse_rest(char **p) {
     atom *a, *b;
     char *t = nexttok(p);
+    if(!t) {
+        fprintf(stderr, "unexpected symbol '%s'\n", t);
+        return &nil;
+    }
 
     switch(t[0]) {
         case ')':
