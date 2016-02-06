@@ -166,12 +166,14 @@ atom *splice(atom *a, atom *b) {
     return r;
 }
 
+atom *eval(atom *sexp, atom *env);
 atom *call_lam(atom *args, atom *env) {
     // also crap
     atom *lam = args->car;
     args = args->cdr;
     atom *list = splice(lam->car, args);
-    return list;
+    append(&env, list);
+    return eval(lam->cdr, env);
 }
 
 atom *eval_fn(atom *sexp, atom *env) {
@@ -247,6 +249,7 @@ char *nexttok(char **p) {
         case ')':
             NEXTCHAR; return ")";
         default:
+            // THIS IS SO CRAP I CAN'T EVEN
             a = malloc(MAX_VAR_LEN);
             i = 0;
             while(**p != '('
