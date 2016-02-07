@@ -200,6 +200,9 @@ atom *eval(atom *sexp, atom *env) {
             return nlambda(sexp->cdr->car, sexp->cdr->cdr->car);
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
+        } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "def") == 0) {
+            append(&env, ncons(sexp->cdr->car, sexp->cdr->cdr->car));
+            return &nil;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "cond") == 0) {
             atom *l = sexp->cdr;
             if(l == &nil) return &nil;
