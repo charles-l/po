@@ -201,6 +201,11 @@ atom *eval(atom *sexp, atom *env) {
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "def") == 0) {
+            // TODO: cleanup
+            atom *a;
+            if((a = lookup(env, sexp->cdr->car->sym)) != &nil) {
+                *a = *(sexp->cdr->cdr->car);
+            }
             if(sexp->cdr->cdr->car->car->type == ATOM &&
                     strcmp(sexp->cdr->cdr->cdr->car->car->sym, "lam"))
             {
