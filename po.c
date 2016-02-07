@@ -172,7 +172,7 @@ atom *call_lam(atom *args, atom *env) {
     atom *lam = args->car;
     args = args->cdr;
     atom *list = splice(lam->car, args);
-    append(&env, list);
+    append(&env, list->car);
     return eval(lam->cdr, env);
 }
 
@@ -201,7 +201,13 @@ atom *eval(atom *sexp, atom *env) {
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "quote") == 0) {
             return sexp->cdr->car;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "def") == 0) {
-            append(&env, ncons(sexp->cdr->car, sexp->cdr->cdr->car));
+            if(sexp->cdr->cdr->car->car->type == ATOM &&
+                    strcmp(sexp->cdr->cdr->cdr->car->car->sym, "lam"))
+            {
+                append(&env, ncons(sexp->cdr->car, eval(sexp->cdr->cdr->car, env)));
+            } else {
+                append(&env, ncons(sexp->cdr->car, sexp->cdr->cdr->car));
+            }
             return &nil;
         } else if (sexp->car->type == ATOM && strcmp(sexp->car->sym, "cond") == 0) {
             atom *l = sexp->cdr;
