@@ -340,10 +340,13 @@ int main(int ac, char **av) {
     while(fgets(p, MAX_LINE_LEN, f) != NULL) {
         atom *r = parse(p);
         atom *s = eval(r, env);
+        P(env);
         P(s);
-        //adel(r);
-        adel(s);
     }
+
+    //TODO: figure out how to clean up. Maybe track in adup or malloc??
+    //adel(r);
+    //adel(s);
 
     free(p);
     adel(env);
