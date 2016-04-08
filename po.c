@@ -64,22 +64,7 @@ void resetstr(char *s, holder h) {
     *(h.p) = h.o;
 }
 
-char *endstr(char *s) {
-    return s + (strlen(s) - 1);
-}
-
-char *endpar(char *s) {
-    char *e = endstr(s);
-    while(e[0] != ')')
-    if(e == s)
-        return NULL;
-    else
-        e--;
-    return e;
-}
-
 obj *parse_word(char *s) {
-    puts(s);
     obj *o = malloc(sizeof(obj));
     if((s[0] == '-' && isdigit(s[1])) || isdigit(s[0])) {
         o->type = NUM;
@@ -128,20 +113,43 @@ obj *parse_word(char *s) {
     return o;
 }
 
-char *rgetword(char *s) { // get word from right of string
-    char *e = endpar(s);
-    e--;
-    e[1] = '\0'; // remove paren
-    if(e == s) return NULL; // catch ')' <- TODO: test
-    while(isalnum(e[0]) && e[-1] != '(') e--;
+char *prevwrd(char *e) { // get word from right of string (and move null terminator)
+    while(isspace(e[0])) e--;
+    e[1] = '\0';
+    while(!isspace(e[0]))
+        if(e[0] == '(')
+            return e + 1;
+        else
+            e--;
+    e++; // bump back space
     return e;
 }
 
+char *rempar(char *s) { // remove right paren ')'
+    char *e = strrchr(s, ')');
+    e[0] = '\0';
+    e--;
+    return e;
+}
+
+void backchar(char **s) {
+    (*s)--;
+    **s = '\0';
+}
 
 obj *parse(char *s) {
     if(s[0] == '(') {
-        char *e = strrchr(s, ')');
-        puts(rgetword(s));
+        char *e = rempar(s); // remove right paren and get end of str
+        while(1) {
+            char *m = prevwrd(e);
+            puts(m);
+            if(m == s + 1) break;
+            backchar(&m);
+        }
+        /*do {
+            eatwhitspacer(m);
+            puts(m);
+        } while((m = getwordr(m)) != NULL);*/
     } else {
         return parse_word(s);
     }
