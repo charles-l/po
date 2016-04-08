@@ -4,12 +4,11 @@
 #include <string.h>
 
 typedef struct obj {
-    enum {NUM, SYM, STR, CH, CONS} type;
+    enum {NUM, SYM, STR, CONS} type;
     union {
         double num;
         char *sym;
         char *str; // TODO: probably should use a smarter string obj here
-        char ch;
         struct {
             struct obj *car;
             struct obj *cdr;
@@ -40,8 +39,6 @@ void printobj(obj *o) {
         printf("%lf\n", o->num);
     else if(o->type == SYM)
         printf("#%s\n", o->sym);
-    else if(o->type == CH)
-        printf("%c\n", o->ch);
     else if(o->type == STR)
         printf("\"%s\"\n", o->str);
     else if(o->type == CONS)
@@ -69,32 +66,6 @@ obj *parse_word(char *s) {
     if((s[0] == '-' && isdigit(s[1])) || isdigit(s[0])) {
         o->type = NUM;
         o->num = (double) atoi(s);
-    } else if (s[0] == '#') {
-        if(s[1] == '\\') {
-            o->type = CH;
-            char *w = dupword(s + 2);
-            if(strcmp(w, "newline") == 0)
-                o->ch = '\n';
-            else if (strcmp(w, "space") == 0)
-                o->ch = ' ';
-            else
-                o->ch = w[0];
-            free(w);
-        } else {
-            o->type = SYM;
-            char *w = dupword(s + 1);
-            if(strcmp(w, "t") == 0) {
-                free(w);
-                free(o);
-                return &true;
-            }
-            if(strcmp(w, "f") == 0) {
-                free(w);
-                free(o);
-                return &false;
-            }
-            o->sym = w;
-        }
     } else if (s[0] == '"') {
         o->type = STR;
         char *m = strchr(s + 1, '"');
@@ -106,9 +77,21 @@ obj *parse_word(char *s) {
             o->str = "";
             // TODO: throw error
         }
-    } else {
+    } else if (strncmp(s, "()", 2) == 0) {
         free(o);
-        o = &empty;
+        return &empty;
+    } else {
+        o->type = SYM;
+        char *w = dupword(s);
+        int t = (strcmp(w, "t") == 0);
+        int f = (strcmp(w, "f") == 0);
+        if(t || f) {
+            free(w);
+            free(o);
+            if(t) return &true;
+            if(f) return &false;
+        }
+        o->sym = w;
     }
     return o;
 }
@@ -146,10 +129,6 @@ obj *parse(char *s) {
             if(m == s + 1) break;
             backchar(&m);
         }
-        /*do {
-            eatwhitspacer(m);
-            puts(m);
-        } while((m = getwordr(m)) != NULL);*/
     } else {
         return parse_word(s);
     }
@@ -164,8 +143,8 @@ int main() {
     char buf[128] = "";
     do {
         parse(buf);
-        //obj *o = eval(parse_word(buf));
-        //printobj(o);
+        obj *o = eval(parse_word(buf));
+        printobj(o);
         //freeobj(o);
         printf("> ");
     } while(fgets(buf, 128, stdin));
