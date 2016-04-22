@@ -22,4 +22,9 @@ minimal lisp implementation
     * Make Lisp lists easy to walk through in C.
 
 ## What's implemented
-* heh. Chapter one of Lisp in Small Pieces. Don't worry. The rest will come along soon. Just check the repo history to see where I got to before starting over again ;)
+* really basic lisp
+* requires chicken-scheme to interpret
+* example:
+    * `(set! fact (lam (n) (if (= n 1) 1 (* n (fact (- n 1))))))`
+    * `(p (fact 10))`
+* dynamic variable creation doesn't exist yet (the `fact` binding is defined at compile time)
