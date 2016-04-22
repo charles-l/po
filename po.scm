@@ -23,6 +23,11 @@
 
 (definitial t #t)
 (definitial nil '())
+(definitial foo)
+(definitial bar)
+(definitial x)
+(definitial fib)
+(definitial fact)
 
 (defprimitive cons cons 2)
 (defprimitive car car 1)
@@ -78,7 +83,9 @@
 (define (update! id env value)
   (if (pair? env)
     (if (eq? (caar env) id)
-      (begin (set-cdr! (car env) value)))
+      (begin (set-cdr! (car env) value)
+             value)
+      (update! id (cdr env) value))
     (wrong "No such binding" id)))
 
 (define (evlis exps env)
@@ -107,7 +114,7 @@
                  (evaluate (caddr e) env)
                  (evaluate (cadddr e) env)))
       ((begin) (eprogn (cdr e) env))
-      ((set!)  (update! (cadr e) (cddr e) env))
+      ((set!)  (update! (cadr e) env (evaluate (caddr e) env)))
       ((lam)   (make-function (cadr e) (cddr e) env))
       (else    (invoke (evaluate (car e) env)
                        (evlis (cdr e) env))))))
