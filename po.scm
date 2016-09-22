@@ -1,4 +1,4 @@
-(use format)
+(use format srfi-1)
 
 (define fixnum-shift 2)
 (define char-shift 8)
@@ -6,6 +6,12 @@
 (define boolean-shift 7)
 (define boolean-tag 31)
 (define null-tag 47)
+
+(define (immediate? v)
+  (or (integer? v) (char? v) (boolean? v) (null? v)))
+
+(define (primcall? e)
+  (= (length e) 2))
 
 (define (emit fmt . sp) ; emit without tab
   (define label (eq? (string-ref fmt (- (string-length fmt) 1)) #\:))
@@ -19,8 +25,7 @@
       (apply (cut format #f fmt <>) sp))
     "\n"))
 
-(define (compile-program p)
-  (define (immediate-rep p)
+(define (immediate-rep p)
     (cond
       ((integer? p) ; lower two bits are 00
        (arithmetic-shift p fixnum-shift))
@@ -31,11 +36,24 @@
       ((null? p)    ; lower 8 bits are 00101111
        null-tag)))
 
+(define (emit-expr e)
+  (cond ((immediate? e)
+         (emit "movl $~a, %eax" (immediate-rep e)))
+        ((primcall? e)
+         (case (car e)
+           ((add1)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "addl $~a, %eax" (immediate-rep 1))))))
+        (else
+          "")))
+
+(define (compile-program p)
   (string-append
     (emit ".globl scheme_entry")
     (emit ".type scheme_entry, @function")
     (emit "scheme_entry:")
-    (emit "movl $~a, %eax" (immediate-rep p))
+    (emit-expr p)
     (emit "ret")))
 
-(print (compile-program #f))
+(print (compile-program '(add1 14)))
