@@ -44,7 +44,20 @@
            ((add1)
             (string-append
               (emit-expr (cadr e))
-              (emit "addl $~a, %eax" (immediate-rep 1))))))
+              (emit "addl $~a, %eax" (immediate-rep 1))))
+           ((sub1)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "subl $~a, %eax" (immediate-rep 1))))
+           ((integer->char)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "shl $~a, %eax" 6)
+              (emit "orl $~a, %eax" char-tag)))
+           ((char->integer)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "shr $~a, %eax" 6)))))
         (else
           "")))
 
@@ -56,4 +69,4 @@
     (emit-expr p)
     (emit "ret")))
 
-(print (compile-program '(add1 14)))
+(print (compile-program '(integer->char (add1 65))))
