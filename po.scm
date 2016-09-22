@@ -1,129 +1,41 @@
-(define env.init '())
-(define env.global env.init)
+(use format)
 
-(define-syntax definitial
-  (syntax-rules ()
-    ((definitial name)
-     (begin (set! env.global (cons (cons 'name 'void) env.global))
-            'name))
-    ((definitial name value)
-     (begin (set! env.global (cons (cons 'name value) env.global))
-            'name))))
+(define fixnum-shift 2)
+(define char-shift 8)
+(define char-tag 15)
+(define boolean-shift 7)
+(define boolean-tag 31)
+(define null-tag 47)
 
+(define (emit fmt . sp) ; emit without tab
+  (define label (eq? (string-ref fmt (- (string-length fmt) 1)) #\:))
+  (define directive (eq? (string-ref fmt 0) #\.))
+  (string-append
+    (if (or label directive)
+      ""
+      "\t")
+    (if (null? sp)
+      fmt
+      (apply (cut format #f fmt <>) sp))
+    "\n"))
 
-(define-syntax defprimitive
-  (syntax-rules ()
-    ((defprimitive name value arity)
-     (definitial name
-                 (lambda (values)
-                   (if (= arity (length values))
-                     (apply value values)
-                     (wrong "Incorrect arity"
-                            (list 'name values))))))))
+(define (compile-program p)
+  (define (immediate-rep p)
+    (cond
+      ((integer? p) ; lower two bits are 00
+       (arithmetic-shift p fixnum-shift))
+      ((char? p)    ; lower eight bits are 00001111
+       (bitwise-ior (arithmetic-shift (char->integer p) char-shift) char-tag))
+      ((boolean? p) ; lower 7 bits are 0011111
+       (bitwise-ior (arithmetic-shift (if p 1 0) boolean-shift) boolean-tag))
+      ((null? p)    ; lower 8 bits are 00101111
+       null-tag)))
 
-(definitial t #t)
-(definitial nil '())
-(definitial foo)
-(definitial bar)
-(definitial x)
-(definitial fib)
-(definitial fact)
+  (string-append
+    (emit ".globl scheme_entry")
+    (emit ".type scheme_entry, @function")
+    (emit "scheme_entry:")
+    (emit "movl $~a, %eax" (immediate-rep p))
+    (emit "ret")))
 
-(defprimitive cons cons 2)
-(defprimitive car car 1)
-(defprimitive cdr cdr 1)
-(defprimitive pair? pair? 1)
-(defprimitive symbol? symbol? 1)
-(defprimitive eq? eq? 2)
-(defprimitive set-car! set-car! 2)
-(defprimitive set-cdr! set-cdr! 2)
-(defprimitive + + 2)
-(defprimitive - - 2)
-(defprimitive = = 2)
-(defprimitive > > 2)
-(defprimitive < < 2)
-(defprimitive * * 2)
-(defprimitive <= <= 2)
-(defprimitive >= >= 2)
-(defprimitive % remainder 2)
-(defprimitive p display 1)
-
-
-(define (wrong . args)
-  (print args))
-
-(define (lookup id env)
-  (if (pair? env)
-    (if (eq? (caar env) id)
-      (cdar env)
-      (lookup id (cdr env)))
-    (wrong "No such binding" id)))
-
-(define (invoke fn args)
-  (if (procedure? fn)
-    (fn args)
-    (wrong "not a function" fn)))
-
-(define (extend env vars vals)
-  (cond ((pair? vars)
-         (if (pair? vals)
-           (cons (cons (car vars) (car vals))
-                 (extend env (cdr vars) (cdr vals)))
-           (wrong "Too few vals")))
-        ((null? vars)
-         (if (null? vals)
-           env
-           (wrong "Too many vals")))
-        ((symbol? vars) (cons (cons vars vals) env))))
-
-(define (make-function vars body env)
-  (lambda (vals)
-    (eprogn body (extend env vars vals))))
-
-(define (update! id env value)
-  (if (pair? env)
-    (if (eq? (caar env) id)
-      (begin (set-cdr! (car env) value)
-             value)
-      (update! id (cdr env) value))
-    (wrong "No such binding" id)))
-
-(define (evlis exps env)
-  (if (pair? exps)
-    (cons (evaluate (car exps) env)
-          (evlis (cdr exps) env))
-    '()))
-
-(define (eprogn exps env)
-  (if (pair? exps)
-    (if (pair? (cdr exps))
-      (begin (evaluate (car exps) env)
-             (eprogn (cdr exps) env))
-      (evaluate (car exps) env))
-    '()))
-
-(define (evaluate e env)
-  (if (not (pair? e))
-    (cond ((symbol? e) (lookup e env))
-          ((or (number? e) (string? e) (char? e) (boolean? e) (vector? e))
-           e)
-          (else (wrong "Cannot evalute" e)))
-    (case (car e)
-      ((quote) (cadr e))
-      ((if)    (if (evaluate (cadr e) env)
-                 (evaluate (caddr e) env)
-                 (evaluate (cadddr e) env)))
-      ((begin) (eprogn (cdr e) env))
-      ((set!)  (update! (cadr e) env (evaluate (caddr e) env)))
-      ((lam)   (make-function (cadr e) (cddr e) env))
-      (else    (invoke (evaluate (car e) env)
-                       (evlis (cdr e) env))))))
-
-(define (po)
-  (define (toplevel)
-    (display "> ")
-    (evaluate (read) env.global)
-    (toplevel))
-  (toplevel))
-
-(po)
+(print (compile-program #f))
