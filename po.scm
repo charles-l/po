@@ -65,7 +65,15 @@
               (emit "mov $~a, %edx" (immediate-rep #t))
               (emit "cmp $~a, %eax" null-tag)
               (emit "cmovzl %edx, %ecx")
-              (emit "mov %ecx, %eax")))))
+              (emit "mov %ecx, %eax")))
+           ((zero?)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "cmpl $0, %eax")
+              (emit "movl $0, %eax")
+              (emit "sete %al")
+              (emit "sall $~a, %eax" (immediate-rep #t))
+              (emit "orl $~a, %eax" (immediate-rep #f))))))
         (else
           "")))
 
@@ -77,4 +85,4 @@
     (emit-expr p)
     (emit "ret")))
 
-(print (compile-program `(null? ,'())))
+(print (compile-program `(zero? 0)))
