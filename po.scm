@@ -39,7 +39,7 @@
 (define (emit-expr e)
   (cond ((immediate? e)
          (emit "movl $~a, %eax" (immediate-rep e)))
-        ((primcall? e)
+        ((primcall? e) ; call with only one argument that can fit in a single register
          (case (car e)
            ((add1)
             (string-append
@@ -57,7 +57,15 @@
            ((char->integer)
             (string-append
               (emit-expr (cadr e))
-              (emit "shr $~a, %eax" 6)))))
+              (emit "shr $~a, %eax" 6)))
+           ((null?)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "mov $~a, %ecx" (immediate-rep #f))
+              (emit "mov $~a, %edx" (immediate-rep #t))
+              (emit "cmp $~a, %eax" null-tag)
+              (emit "cmovzl %edx, %ecx")
+              (emit "mov %ecx, %eax")))))
         (else
           "")))
 
@@ -69,4 +77,4 @@
     (emit-expr p)
     (emit "ret")))
 
-(print (compile-program '(integer->char (add1 65))))
+(print (compile-program `(null? ,'())))
