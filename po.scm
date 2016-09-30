@@ -1,19 +1,27 @@
 (use format srfi-1)
 
+(define word-size 4)
+
+;; data types
+(define fixnum-mask 3)
+(define fixnum-tag 0)
 (define fixnum-shift 2)
+
 (define char-shift 8)
 (define char-tag 15)
+
+(define boolean-mask 127)
 (define boolean-shift 7)
 (define boolean-tag 31)
 (define null-tag 47)
 
-(define (immediate? v)
+(define (immediate? v) ; literal value that fits in one word (i.e 1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
 
-(define (primcall? e)
+(define (primcall? e) ; a call that takes one immediate argument (so it can be with only registers)
   (= (length e) 2))
 
-(define (emit fmt . sp) ; emit without tab
+(define (emit fmt . sp) ; used to build assembly
   (define label (eq? (string-ref fmt (- (string-length fmt) 1)) #\:))
   (define directive (eq? (string-ref fmt 0) #\.))
   (string-append
@@ -25,7 +33,7 @@
       (apply (cut format #f fmt <>) sp))
     "\n"))
 
-(define (immediate-rep p)
+(define (immediate-rep p) ; convert a lisp value to an immediate
     (cond
       ((integer? p) ; lower two bits are 00
        (arithmetic-shift p fixnum-shift))
@@ -66,6 +74,24 @@
               (emit "cmp $~a, %eax" null-tag)
               (emit "cmovzl %edx, %ecx")
               (emit "mov %ecx, %eax")))
+           ((integer?)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "mov $~a, %ecx" (immediate-rep #f))
+              (emit "mov $~a, %edx" (immediate-rep #t))
+              (emit "cmp $~a, %eax" fixnum-tag)
+              (emit "andl $~a, %eax" fixnum-mask) ; mask out data
+              (emit "cmovzl %edx, %ecx")
+              (emit "mov %ecx, %eax")))
+           ((boolean?)
+            (string-append
+              (emit-expr (cadr e))
+              (emit "mov $~a, %ecx" (immediate-rep #f))
+              (emit "mov $~a, %edx" (immediate-rep #t))
+              (emit "andl $~a, %eax" boolean-mask) ; mask out data
+              (emit "cmp $~a, %eax" boolean-tag)
+              (emit "cmovzl %edx, %ecx")
+              (emit "mov %ecx, %eax")))
            ((zero?)
             (string-append
               (emit-expr (cadr e))
@@ -77,12 +103,22 @@
         (else
           "")))
 
+;(define (emit-primitive-call x si)
+;  (case (car x)
+;    ((+)
+;     (emit-expr (cadr x) si)
+;     (emit "movl %eax, ~a(%esp)" si)
+;     (emit-expr
+;       (car x)
+;       (- si wordsize))
+;     (emit "addl ~a(%esp), %eax" si))))
+
 (define (compile-program p)
   (string-append
-    (emit ".globl scheme_entry")
+    (emit ".globl scheme_entry") ; boilerplate
     (emit ".type scheme_entry, @function")
     (emit "scheme_entry:")
     (emit-expr p)
     (emit "ret")))
 
-(print (compile-program `(zero? 0)))
+(print (compile-program `(boolean? #t)))
