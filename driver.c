@@ -17,7 +17,7 @@
 
 int main() {
     int val = scheme_entry();
-    printf("D: %d\n", val);
+    //printf("D: %d\n", val);
     if((val & fixnum_mask) == fixnum_tag) {
         printf("%d\n", val >> fixnum_shift);
     } else if((val & char_mask) == char_tag) {
