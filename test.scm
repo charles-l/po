@@ -25,6 +25,7 @@
 		       (print (fmt #f (fmt-green "PASSED")))
 		       (begin
 			 (print r)
+			 (print (read-all "/tmp/scheme_entry.s"))
 			 (print (fmt #f (fmt-red "FAILED"))))))))))
 
 (make-test 0			'eq? 0)
@@ -59,4 +60,10 @@
 (make-test `(zero? 0)		'eq? #t)
 (make-test `(zero? 4)		'eq? #f)
 (make-test `(zero? -4)		'eq? #f)
+(make-test `(+ 3 2)		'eq? 5)
 (make-test `(+ 4 3 2)		'eq? 9)
+(make-test `(+ 1 2 3 4 5 6)     'eq? 21)
+(make-test `(+ (add1 1) 2)      'eq? 4)
+(make-test `(+ (+ 1 2 3) 2)     'eq? 8)
+(make-test `(- 3 2 1)		'eq? 0)
+(make-test `(- 1 2 3)		'eq? -4)

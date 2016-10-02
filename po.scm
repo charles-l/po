@@ -16,9 +16,8 @@
 (define null-tag 47)
 
 (define (stack-pos si)
-  (if (zero? si)
-    "%eax"
-    (string-append (->string si) "(%esp)")))
+  (if (zero? si) (error "0(%esp) shouldn't be set"))
+  (string-append (->string si) "(%esp)"))
 
 (define (immediate? v) ; literal value that fits in one word (i.e 1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
@@ -49,10 +48,9 @@
     ((null? p)    ; lower 8 bits are 00101111
      null-tag)))
 
-(define (emit-immediate e si)
-  (emit "movl $~a, ~a"
-	(immediate-rep e)
-	(stack-pos si)))
+(define (emit-immediate e)
+  (emit "movl $~a, %eax"
+	(immediate-rep e)))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
   (string-append
@@ -61,6 +59,24 @@
     (emit "cmp $~a, %eax" val)
     (emit "cmovzl %edx, %ecx")
     (emit "mov %ecx, %eax"))) ; move the result to %eax
+
+(define (push-to-stack l si) ; push a list to the stack
+  (if (null? l)
+    ""
+    (string-append
+      (emit-expr (car l) si)
+      (emit "movl %eax, ~a" ; push that variable onto the stack
+	    (stack-pos si))
+      (push-to-stack (cdr l) (- si word-size)))))
+
+(define (apply-stack op si)
+  (if (>= si (- word-size))
+    (emit "movl ~a, %eax" (stack-pos si))
+    (string-append
+      (apply-stack op (+ si word-size))
+      (emit "~a ~a, %eax"
+	    op
+	    (stack-pos si)))))
 
 (define (emit-primative e si)
   (case (car e)
@@ -100,18 +116,17 @@
        (emit-expr (cadr e) si)
        (emit-cmp-eax 0)))
     ((+)
-     (string-append (emit-expr (cadr e) si)
-		    (emit "movl %eax, ~a"
-			  (stack-pos si))
-		    (emit-expr
-		      (cadr e)
-		      (- si word-size))
-		    (emit "addl ~a, %eax"
-			  (stack-pos si))))))
+     (string-append
+       (push-to-stack (cdr e) si)
+       (apply-stack "addl" (- (* word-size (length (cdr e)))))))
+    ((-)
+     (string-append
+		    (push-to-stack (cdr e) si)
+		    (apply-stack "subl" (- (* word-size (length (cdr e)))))))))
 
 (define (emit-expr e si)
   (cond ((immediate? e)
-	 (emit-immediate e si))
+	 (emit-immediate e))
 	((primcall? e)
 	 (emit-primative e si))
 	(else
@@ -120,7 +135,8 @@
 (define (compile-program p)
   (string-append
     (emit ".globl scheme_entry") ; boilerplate
+    (emit ".code32") ; currently only supporting x86 asm
     (emit ".type scheme_entry, @function")
     (emit "scheme_entry:")
-    (emit-expr p 0)
+    (emit-expr p -4)
     (emit "ret")))
