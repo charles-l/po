@@ -91,12 +91,12 @@
     ((integer->char)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "shl $~a, %eax" 6)
+       (emit "shl $~a, %eax" (- char-shift fixnum-shift))
        (emit "orl $~a, %eax" char-tag)))
     ((char->integer)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "shr $~a, %eax" 6)))
+       (emit "shr $~a, %eax" (- char-shift fixnum-shift))))
     ((null?)
      (string-append
        (emit-expr (cadr e) si)
@@ -121,8 +121,8 @@
        (apply-stack "addl" (- (* word-size (length (cdr e)))))))
     ((-)
      (string-append
-		    (push-to-stack (cdr e) si)
-		    (apply-stack "subl" (- (* word-size (length (cdr e)))))))))
+       (push-to-stack (cdr e) si)
+       (apply-stack "subl" (- (* word-size (length (cdr e)))))))))
 
 (define (emit-expr e si)
   (cond ((immediate? e)
