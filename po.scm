@@ -1,22 +1,26 @@
 (use format srfi-1)
 
 (define word-size 4)
+(define stack-start (- word-size)) ; start of the stack (offset of %esp)
 
 ;; data types
 (define fixnum-mask 3)
 (define fixnum-tag 0)
 (define fixnum-shift 2)
 
-(define char-shift 8)
+(define char-mask 255)
 (define char-tag 15)
+(define char-shift 8)
 
 (define boolean-mask 127)
-(define boolean-shift 7)
 (define boolean-tag 31)
+(define boolean-shift 7)
+
+(define null-mask 255)
 (define null-tag 47)
 
 (define (stack-pos si)
-  (if (zero? si) (error "0(%esp) shouldn't be set"))
+  (if (zero? si) (error "0(%esp) can't be set"))
   (string-append (->string si) "(%esp)"))
 
 (define (immediate? v) ; literal value that fits in one word (i.e 1, #\a, #t, '())
@@ -25,17 +29,14 @@
 (define (primcall? e) ; a call that takes one immediate argument (so it can be with only registers)
   (> (length e) 1))
 
-(define (emit fmt . sp) ; used to build assembly
-  (define label (eq? (string-ref fmt (- (string-length fmt) 1)) #\:))
-  (define directive (eq? (string-ref fmt 0) #\.))
-  (string-append
-    (if (or label directive)
-      ""
-      "\t")
-    (if (null? sp)
-      fmt
-      (apply (cut format #f fmt <> <...>) sp))
-    "\n"))
+(define-syntax emit
+  (er-macro-transformer
+    (lambda (e r c)
+      (let ((op (cadr e) (a (caddr e)) (b (cadddr e))))
+	`(string-append ,(if (any (cut eq? <> (string-ref (->string op) 1)) '(#\: #\.))
+			   ""
+			   "\t")
+			,(string-append (->string op) (->string a) ", " (->string b) "\n"))))))
 
 (define (immediate-rep p) ; convert a lisp value to an immediate
   (cond
@@ -60,23 +61,26 @@
     (emit "cmovzl %edx, %ecx")
     (emit "mov %ecx, %eax"))) ; move the result to %eax
 
-(define (push-to-stack l si) ; push a list to the stack
+(define (emit-push-to-stack l si) ; push a list to the stack
   (if (null? l)
     ""
     (string-append
       (emit-expr (car l) si)
       (emit "movl %eax, ~a" ; push that variable onto the stack
 	    (stack-pos si))
-      (push-to-stack (cdr l) (- si word-size)))))
+      (emit-push-to-stack (cdr l) (- si word-size)))))
 
-(define (apply-stack op si)
+(define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
     (emit "movl ~a, %eax" (stack-pos si))
     (string-append
-      (apply-stack op (+ si word-size))
+      (emit-apply-stack op (+ si word-size))
       (emit "~a ~a, %eax"
 	    op
 	    (stack-pos si)))))
+
+(define (emit-mask-data mask) ; leave just the type behind for type checks
+  (emit "andl $~a, %eax" mask))
 
 (define (emit-primative e si)
   (case (car e)
@@ -104,12 +108,12 @@
     ((integer?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "andl $~a, %eax" fixnum-mask) ; mask out data
+       (emit-mask-data fixnum-mask)
        (emit-cmp-eax fixnum-tag)))
     ((boolean?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "andl $~a, %eax" boolean-mask) ; mask out data
+       (emit-mask-data boolean-mask)
        (emit-cmp-eax boolean-tag)))
     ((zero?)
      (string-append
@@ -117,12 +121,12 @@
        (emit-cmp-eax 0)))
     ((+)
      (string-append
-       (push-to-stack (cdr e) si)
-       (apply-stack "addl" (- (* word-size (length (cdr e)))))))
+       (emit-push-to-stack (cdr e) si)
+       (emit-apply-stack "addl" (- (* word-size (length (cdr e)))))))
     ((-)
      (string-append
-       (push-to-stack (cdr e) si)
-       (apply-stack "subl" (- (* word-size (length (cdr e)))))))))
+       (emit-push-to-stack (cdr e) si)
+       (emit-apply-stack "subl" (- (* word-size (length (cdr e)))))))))
 
 (define (emit-expr e si)
   (cond ((immediate? e)
@@ -138,5 +142,5 @@
     (emit ".code32") ; currently only supporting x86 asm
     (emit ".type scheme_entry, @function")
     (emit "scheme_entry:")
-    (emit-expr p -4)
+    (emit-expr p stack-start)
     (emit "ret")))

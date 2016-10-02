@@ -14,6 +14,7 @@
 
 #define null_mask    255
 #define null_tag      47
+#define null_shift     0
 
 int main() {
     int val = scheme_entry();
