@@ -23,20 +23,23 @@
   (if (zero? si) (error "0(%esp) can't be set"))
   (string-append (->string si) "(%esp)"))
 
-(define (immediate? v) ; literal value that fits in one word (i.e 1, #\a, #t, '())
+(define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
 
-(define (primcall? e) ; a call that takes one immediate argument (so it can be with only registers)
+(define (primcall? e) ; a built in function call
   (> (length e) 1))
 
 (define-syntax emit
   (er-macro-transformer
     (lambda (e r c)
       (let ((op (cadr e) (a (caddr e)) (b (cadddr e))))
-	`(string-append ,(if (any (cut eq? <> (string-ref (->string op) 1)) '(#\: #\.))
+	`(string-append ,(if (any (cut eq? <> (string-ref (->string op) 1))
+				  '(#\: #\.))
 			   ""
 			   "\t")
-			,(string-append (->string op) (->string a) ", " (->string b) "\n"))))))
+			,(string-append (->string op)
+					(->string a) ", "
+					(->string b) "\n"))))))
 
 (define (immediate-rep p) ; convert a lisp value to an immediate
   (cond
