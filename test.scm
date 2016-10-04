@@ -6,7 +6,15 @@
 (define (eq-length? n l)
   (eq? n (length l)))
 
+(define (print-success str)
+  (print (fmt #f (fmt-green str))))
+
+(define (print-fail str)
+  (print (fmt #f (fmt-red str))))
+
 ;;
+
+(define failures '())
 
 (define-syntax make-test
   (syntax-rules ()
@@ -16,17 +24,19 @@
 			      (string-pad-right (->string expr) 20)
 			      (string-pad (string-upcase (symbol->string cmp)) 10) " "
 			      (string-pad-right (->string expect-val) 5)))
-		   (with-output-to-file "/tmp/scheme_entry.s"
-					(lambda () (display (compile-program expr))))
+		   (with-output-to-file
+		     "/tmp/scheme_entry.s"
+		     (lambda () (display (compile-program expr))))
 		   (system "cp driver.c /tmp")
-		   (system "cd /tmp && cc -c scheme_entry.s && cc -o scheme_test driver.c scheme_entry.o")
+		   (system "cd /tmp && cc -c scheme_entry.s && cc -o scheme_test driver.c scheme_entry.o &>/dev/null")
 		   (let ((r (with-input-from-pipe "cd /tmp && ./scheme_test" read)))
 		     (if (eval `(,cmp ,expect-val ,r))
-		       (print (fmt #f (fmt-green "PASSED")))
+		       (print-success "SUCCESS")
 		       (begin
-			 (print r)
-			 (print (read-all "/tmp/scheme_entry.s"))
-			 (print (fmt #f (fmt-red "FAILED"))))))))))
+			 (set! failures
+			   (append failures
+				   `(((,expr ,cmp ,expect-val) . (,r ,(read-all "/tmp/scheme_entry.s"))))))
+			 (print-fail "FAILED"))))))))
 
 (make-test 0			'eq? 0)
 (make-test 3			'eq? 3)
@@ -67,3 +77,12 @@
 (make-test `(+ (+ 1 2 3) 2)     'eq? 8)
 (make-test `(- 3 2 1)		'eq? 0)
 (make-test `(- 1 2 3)		'eq? -4)
+
+(if (null? failures)
+  (print-success "ALL TESTS PASSED")
+  (begin
+    (print-fail "FAILED TESTS")
+    (for-each (lambda (f)
+		(print-fail (string-append (->string (car f)) " but got " (->string (cadr f))))
+		(print (caddr f)))
+	      failures)))

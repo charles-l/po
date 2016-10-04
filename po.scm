@@ -117,12 +117,12 @@
     ((integer->char)
      (string-append
        (emit-expr (cadr e) si)
-       (emit shl (- char-shift fixnum-shift) %eax)
-       (emit orl char-tag %eax)))
+       (emit shl (asm-value (- char-shift fixnum-shift)) %eax)
+       (emit orl (asm-value char-tag) %eax)))
     ((char->integer)
      (string-append
        (emit-expr (cadr e) si)
-       (emit shr (- char-shift fixnum-shift) %eax)))
+       (emit shr (asm-value (- char-shift fixnum-shift)) %eax)))
     ((null?)
      (string-append
        (emit-expr (cadr e) si)
