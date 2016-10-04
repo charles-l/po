@@ -14,9 +14,9 @@
 
 ;;
 
-(define failures '())
+(define failures '()) ; hold test failures in the form ((expr cmp expect-val) . (actual-result assembly-string))
 
-(define-syntax make-test
+(define-syntax make-test ; TODO: prettify this
   (syntax-rules ()
 		((make-test expr cmp expect-val)
 		 (begin

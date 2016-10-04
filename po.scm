@@ -32,13 +32,13 @@
 (define (asm-value v) ; stick a "$" at the start of an immediate asm value
   (string-append "$" (->string v)))
 
-(define-syntax emit
+(define-syntax emit ; maybe this is a little too much??? ... nah...
   (er-macro-transformer
     (lambda (e r c)
       (if (string? (cadr e)) ; emit a literal string
 	(string-append (cadr e) "\n")
 	(begin (if (not (eq? (length e) 4))
-		 (error "expression must be 4 arguments " e))
+		 (error "emit must contain an opcode and 2 arguments " e))
 	       (let ((op (cadr e)) (a (caddr e)) (b (cadddr e)))
 		 `(string-append ,(if (any (lambda (n) eq? n (string-ref (->string op) 0))
 					   '(#\: #\.))
