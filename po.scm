@@ -19,6 +19,40 @@
 (define null-mask 255)
 (define null-tag 47)
 
+;;; emit dsl
+
+(define (register-name? sym)
+  (eq? #\% (string-ref (->string sym) 0)))
+
+(define (emit-arg sym)
+  (if (register-name? sym)
+    (->string sym)
+    `(string-append (->string ,sym))))
+
+(define (asm-value v) ; stick a "$" at the start of an immediate asm value
+  (string-append "$" (->string v)))
+
+(define-syntax emit
+  (er-macro-transformer
+    (lambda (e r c)
+      (if (string? (cadr e)) ; emit a literal string
+	(string-append (cadr e) "\n")
+	(begin (if (not (eq? (length e) 4))
+		 (error "expression must be 4 arguments " e))
+	       (let ((op (cadr e)) (a (caddr e)) (b (cadddr e)))
+		 `(string-append ,(if (any (lambda (n) eq? n (string-ref (->string op) 0))
+					   '(#\: #\.))
+				    ""
+				    "\t")
+				 (string-append ,(if (list? op)
+						   (if (eq? 'unquote (car op))
+						     (cadr op))
+						   (->string op)) " "
+						,(emit-arg a)  ", "
+						,(emit-arg b) "\n"))))))))
+
+;;;
+
 (define (stack-pos si)
   (if (zero? si) (error "0(%esp) can't be set"))
   (string-append (->string si) "(%esp)"))
@@ -29,99 +63,84 @@
 (define (primcall? e) ; a built in function call
   (> (length e) 1))
 
-(define-syntax emit
-  (er-macro-transformer
-    (lambda (e r c)
-      (let ((op (cadr e) (a (caddr e)) (b (cadddr e))))
-	`(string-append ,(if (any (cut eq? <> (string-ref (->string op) 1))
-				  '(#\: #\.))
-			   ""
-			   "\t")
-			,(string-append (->string op)
-					(->string a) ", "
-					(->string b) "\n"))))))
-
 (define (immediate-rep p) ; convert a lisp value to an immediate
-  (cond
-    ((integer? p) ; lower two bits are 00
-     (arithmetic-shift p fixnum-shift))
-    ((char? p)    ; lower eight bits are 00001111
-     (bitwise-ior (arithmetic-shift (char->integer p) char-shift) char-tag))
-    ((boolean? p) ; lower 7 bits are 0011111
-     (bitwise-ior (arithmetic-shift (if p 1 0) boolean-shift) boolean-tag))
-    ((null? p)    ; lower 8 bits are 00101111
-     null-tag)))
+  (asm-value
+    (cond
+      ((integer? p) ; lower two bits are 00
+       (arithmetic-shift p fixnum-shift))
+      ((char? p)    ; lower eight bits are 00001111
+       (bitwise-ior (arithmetic-shift (char->integer p) char-shift) char-tag))
+      ((boolean? p) ; lower 7 bits are 0011111
+       (bitwise-ior (arithmetic-shift (if p 1 0) boolean-shift) boolean-tag))
+      ((null? p)    ; lower 8 bits are 00101111
+       null-tag))))
 
 (define (emit-immediate e)
-  (emit "movl $~a, %eax"
-	(immediate-rep e)))
+  (emit movl (immediate-rep e) %eax))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
   (string-append
-    (emit "mov $~a, %ecx" (immediate-rep #f)) ; move #t and #f into registers
-    (emit "mov $~a, %edx" (immediate-rep #t))
-    (emit "cmp $~a, %eax" val)
-    (emit "cmovzl %edx, %ecx")
-    (emit "mov %ecx, %eax"))) ; move the result to %eax
+    (emit mov (immediate-rep #f) %ecx) ; move #t and #f into registers
+    (emit mov (immediate-rep #t) %edx)
+    (emit cmp val %eax)
+    (emit cmovzl %edx %ecx)
+    (emit mov %ecx %eax))) ; move the result to %eax
 
 (define (emit-push-to-stack l si) ; push a list to the stack
   (if (null? l)
     ""
     (string-append
       (emit-expr (car l) si)
-      (emit "movl %eax, ~a" ; push that variable onto the stack
-	    (stack-pos si))
+      (emit movl %eax (stack-pos si)) ; push variable onto stack
       (emit-push-to-stack (cdr l) (- si word-size)))))
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
-    (emit "movl ~a, %eax" (stack-pos si))
+    (emit movl (stack-pos si) %eax)
     (string-append
       (emit-apply-stack op (+ si word-size))
-      (emit "~a ~a, %eax"
-	    op
-	    (stack-pos si)))))
+      (emit ,op (stack-pos si) %eax))))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
-  (emit "andl $~a, %eax" mask))
+  (emit andl mask %eax))
 
 (define (emit-primative e si)
   (case (car e)
     ((add1)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "addl $~a, %eax" (immediate-rep 1))))
+       (emit addl (immediate-rep 1) %eax)))
     ((sub1)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "subl $~a, %eax" (immediate-rep 1))))
+       (emit subl (immediate-rep 1) %eax)))
     ((integer->char)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "shl $~a, %eax" (- char-shift fixnum-shift))
-       (emit "orl $~a, %eax" char-tag)))
+       (emit shl (- char-shift fixnum-shift) %eax)
+       (emit orl char-tag %eax)))
     ((char->integer)
      (string-append
        (emit-expr (cadr e) si)
-       (emit "shr $~a, %eax" (- char-shift fixnum-shift))))
+       (emit shr (- char-shift fixnum-shift) %eax)))
     ((null?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit-cmp-eax null-tag)))
+       (emit-cmp-eax (asm-value null-tag))))
     ((integer?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit-mask-data fixnum-mask)
-       (emit-cmp-eax fixnum-tag)))
+       (emit-mask-data (asm-value fixnum-mask))
+       (emit-cmp-eax (asm-value fixnum-tag))))
     ((boolean?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit-mask-data boolean-mask)
-       (emit-cmp-eax boolean-tag)))
+       (emit-mask-data (asm-value boolean-mask))
+       (emit-cmp-eax (asm-value boolean-tag))))
     ((zero?)
      (string-append
        (emit-expr (cadr e) si)
-       (emit-cmp-eax 0)))
+       (emit-cmp-eax (asm-value 0))))
     ((+)
      (string-append
        (emit-push-to-stack (cdr e) si)
