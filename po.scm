@@ -3,7 +3,8 @@
 (define word-size 4)
 (define stack-start (- word-size)) ; start of the stack (offset of %esp)
 
-;; data types
+;;; data types
+
 (define fixnum-mask 3)
 (define fixnum-tag 0)
 (define fixnum-shift 2)
@@ -19,12 +20,14 @@
 (define null-mask 255)
 (define null-tag 47)
 
+;;;
+
 ;;; emit dsl
 
 (define (register-name? sym)
   (eq? #\% (string-ref (->string sym) 0)))
 
-(define (emit-arg sym)
+(define (make-arg sym)
   (if (register-name? sym)
     (->string sym)
     `(string-append (->string ,sym))))
@@ -36,22 +39,30 @@
   (er-macro-transformer
     (lambda (e r c)
       (if (string? (cadr e)) ; emit a literal string
-	(string-append (cadr e) "\n")
+	`(display ,(string-append (cadr e) "\n"))
 	(begin (if (not (eq? (length e) 4))
 		 (error "emit must contain an opcode and 2 arguments " e))
 	       (let ((op (cadr e)) (a (caddr e)) (b (cadddr e)))
-		 `(string-append ,(if (any (lambda (n) eq? n (string-ref (->string op) 0))
-					   '(#\: #\.))
-				    ""
-				    "\t")
-				 (string-append ,(if (list? op)
-						   (if (eq? 'unquote (car op))
-						     (cadr op))
-						   (->string op)) " "
-						,(emit-arg a)  ", "
-						,(emit-arg b) "\n"))))))))
+		 `(display (string-append ,(if (any (lambda (n) eq? n (string-ref (->string op) 0))
+						    '(#\: #\.))
+					     ""
+					     "\t")
+					  (string-append ,(if (list? op)
+							    (if (eq? 'unquote (car op))
+							      (cadr op))
+							    (->string op)) " "
+							 ,(make-arg a)  ", "
+							 ,(make-arg b) "\n")))))))))
 
 ;;;
+
+(define (make-env) '())
+
+(define (lookup var env) ; returns the stack offset of a variable in env
+  (cadr (or (assoc var env) '(#f #f))))
+
+(define (push-var var si env)
+  `((,var ,si) . ,env))
 
 (define (stack-pos si)
   (if (zero? si) (error "0(%esp) can't be set"))
@@ -60,8 +71,14 @@
 (define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
 
+(define (variable? v)
+  (symbol? v))
+
 (define (primcall? e) ; a built in function call
   (> (length e) 1))
+
+(define (let? e) ; TODO: add more syntax check here
+  (eq? 'let (car e)))
 
 (define (immediate-rep p) ; convert a lisp value to an immediate
   (asm-value
@@ -79,90 +96,99 @@
   (emit movl (immediate-rep e) %eax))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
-  (string-append
-    (emit mov (immediate-rep #f) %ecx) ; move #t and #f into registers
-    (emit mov (immediate-rep #t) %edx)
-    (emit cmp val %eax)
-    (emit cmovzl %edx %ecx)
-    (emit mov %ecx %eax))) ; move the result to %eax
+  (emit mov (immediate-rep #f) %ecx) ; move #t and #f into registers
+  (emit mov (immediate-rep #t) %edx)
+  (emit cmp val %eax)
+  (emit cmovzl %edx %ecx)
+  (emit mov %ecx %eax)) ; move the result to %eax
 
-(define (emit-push-to-stack l si) ; push a list to the stack
-  (if (null? l)
-    ""
-    (string-append
-      (emit-expr (car l) si)
-      (emit movl %eax (stack-pos si)) ; push variable onto stack
-      (emit-push-to-stack (cdr l) (- si word-size)))))
+(define (emit-push-to-stack l si env) ; push a list to the stack
+  (if (not (null? l))
+    (begin
+      (emit-expr (car l) si env)
+      (emit movl %eax (stack-pos si)) ; push value onto stack
+      (emit-push-to-stack (cdr l) (- si word-size) env))))
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
     (emit movl (stack-pos si) %eax)
-    (string-append
+    (begin
       (emit-apply-stack op (+ si word-size))
       (emit ,op (stack-pos si) %eax))))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
   (emit andl mask %eax))
 
-(define (emit-primative e si)
+(define (emit-primative e si env)
   (case (car e)
     ((add1)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit addl (immediate-rep 1) %eax)))
+     (emit-expr (cadr e) si env)
+     (emit addl (immediate-rep 1) %eax))
     ((sub1)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit subl (immediate-rep 1) %eax)))
+     (emit-expr (cadr e) si env)
+     (emit subl (immediate-rep 1) %eax))
     ((integer->char)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit shl (asm-value (- char-shift fixnum-shift)) %eax)
-       (emit orl (asm-value char-tag) %eax)))
+     (emit-expr (cadr e) si env)
+     (emit shl (asm-value (- char-shift fixnum-shift)) %eax)
+     (emit orl (asm-value char-tag) %eax))
     ((char->integer)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit shr (asm-value (- char-shift fixnum-shift)) %eax)))
+     (emit-expr (cadr e) si env)
+     (emit shr (asm-value (- char-shift fixnum-shift)) %eax))
     ((null?)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit-cmp-eax (asm-value null-tag))))
+     (emit-expr (cadr e) si env)
+     (emit-cmp-eax (asm-value null-tag)))
     ((integer?)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit-mask-data (asm-value fixnum-mask))
-       (emit-cmp-eax (asm-value fixnum-tag))))
+     (emit-expr (cadr e) si env)
+     (emit-mask-data (asm-value fixnum-mask))
+     (emit-cmp-eax (asm-value fixnum-tag)))
     ((boolean?)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit-mask-data (asm-value boolean-mask))
-       (emit-cmp-eax (asm-value boolean-tag))))
+     (emit-expr (cadr e) si env)
+     (emit-mask-data (asm-value boolean-mask))
+     (emit-cmp-eax (asm-value boolean-tag)))
     ((zero?)
-     (string-append
-       (emit-expr (cadr e) si)
-       (emit-cmp-eax (asm-value 0))))
+     (emit-expr (cadr e) si env)
+     (emit-cmp-eax (asm-value 0)))
     ((+)
-     (string-append
-       (emit-push-to-stack (cdr e) si)
-       (emit-apply-stack "addl" (- (* word-size (length (cdr e)))))))
+     (emit-push-to-stack (cdr e) si env)
+     (emit-apply-stack "addl" (- (* word-size (length (cdr e))))))
     ((-)
-     (string-append
-       (emit-push-to-stack (cdr e) si)
-       (emit-apply-stack "subl" (- (* word-size (length (cdr e)))))))))
 
-(define (emit-expr e si)
+     (emit-push-to-stack (cdr e) si env)
+     (emit-apply-stack "subl" (- (* word-size (length (cdr e))))))))
+
+(define (emit-expr e si env)
   (cond ((immediate? e)
 	 (emit-immediate e))
+	((variable? e)
+	 (let ((v (lookup e env)))
+	   (if v
+	     (emit movl (stack-pos v) %eax)
+	     (error "undefined binding" e))))
+	((let? e)
+	 (emit-let (cadr e) (caddr e) si env))
 	((primcall? e)
-	 (emit-primative e si))
+	 (emit-primative e si env))
 	(else
 	  (error "can't generate for expression " e))))
 
+(define (emit-let bindings body si env)
+  (let f ((b* bindings) (new-env env) (si si))
+    (cond
+      ((null? b*) (emit-expr body si new-env))
+      (else
+	(let ((b (car b*)))
+	  (emit-expr (cadr b) si new-env)
+	  (emit movl %eax (stack-pos si))
+	  (f (cdr b*)
+	     (push-var (car b) si new-env)
+	     (- si word-size)))))))
+
 (define (compile-program p)
-  (string-append
-    (emit ".globl scheme_entry") ; boilerplate
-    (emit ".code32") ; currently only supporting x86 asm
-    (emit ".type scheme_entry, @function")
-    (emit "scheme_entry:")
-    (emit-expr p stack-start)
-    (emit "ret")))
+  (with-output-to-string
+    (lambda ()
+      (emit ".globl scheme_entry") ; boilerplate
+      (emit ".code32") ; currently only supporting x86 asm
+      (emit ".type scheme_entry, @function")
+      (emit "scheme_entry:")
+      (emit-expr p stack-start (make-env))
+      (emit "ret"))))

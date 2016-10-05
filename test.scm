@@ -77,6 +77,12 @@
 (make-test `(+ (+ 1 2 3) 2)     'eq? 8)
 (make-test `(- 3 2 1)		'eq? 0)
 (make-test `(- 1 2 3)		'eq? -4)
+(make-test `(let ((a 3))
+	      a)		'eq? 3)
+(make-test `(let ((a 3))
+	      (add1 a))		'eq? 4)
+(make-test `(let ((a 3) (b 1))
+	      (+ a b))		'eq? 4)
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")
