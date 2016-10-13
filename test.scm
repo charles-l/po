@@ -83,6 +83,12 @@
 	      (add1 a))		'eq? 4)
 (make-test `(let ((a 3) (b 1))
 	      (+ a b))		'eq? 4)
+(make-test `(if #t
+	      2
+	      3)		'eq? 2)
+(make-test `(if #f
+	      2
+	      3)		'eq? 3)
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")

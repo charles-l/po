@@ -32,11 +32,17 @@
     (->string sym)
     `(string-append (->string ,sym))))
 
+(define (uniq-label s)
+  (->string (gensym s)))
+
 (define (asm-value v) ; stick a "$" at the start of an immediate asm value
   (string-append "$" (->string v)))
 
 (define (emit-raw str)
   (display (string-append str "\n")))
+
+(define (emit-label e)
+  (display (string-append (->string e) ":")))
 
 (define (proper-emit e) ; emits either the literal symbol or the unquoted value
   (if (list? e)
@@ -97,7 +103,7 @@
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
   (emit mov ,(immediate-rep #f) %ecx) ; move #t and #f into registers
   (emit mov ,(immediate-rep #t) %edx)
-  (emit cmp ,val %eax)
+  (emit cmpl ,val %eax)
   (emit cmovzl %edx %ecx)
   (emit mov %ecx %eax)) ; move the result to %eax
 
@@ -151,9 +157,10 @@
      (emit-push-to-stack (cdr e) si env)
      (emit-apply-stack "addl" (- (* word-size (length (cdr e))))))
     ((-)
-
      (emit-push-to-stack (cdr e) si env)
-     (emit-apply-stack "subl" (- (* word-size (length (cdr e))))))))
+     (emit-apply-stack "subl" (- (* word-size (length (cdr e))))))
+    ((if)
+     (emit-if (cadr e) (caddr e) (cadddr e) si env))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -182,12 +189,23 @@
 	     (push-var (car b) si new-env)
 	     (- si word-size)))))))
 
+(define (emit-if test then-expr else-expr si env)
+  (let ((L0 (uniq-label 'if)) (L1 (uniq-label 'else)))
+    (emit-expr test si env)
+    (emit cmpl ,(immediate-rep #f) %eax)
+    (emit je ,L0)
+    (emit-expr then-expr si env)
+    (emit jmp ,L1)
+    (emit-label L0)
+    (emit-expr else-expr si env)
+    (emit-label L1)))
+
 (define (compile-program p)
   (with-output-to-string
     (lambda ()
       (emit-raw ".globl scheme_entry") ; boilerplate
       (emit-raw ".code32") ; currently only supporting x86 asm
       (emit-raw ".type scheme_entry, @function")
-      (emit-raw "scheme_entry:")
+      (emit-label 'scheme_entry)
       (emit-expr p stack-start (make-env))
       (emit-raw "ret"))))
