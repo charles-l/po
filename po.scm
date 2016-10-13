@@ -35,24 +35,23 @@
 (define (asm-value v) ; stick a "$" at the start of an immediate asm value
   (string-append "$" (->string v)))
 
-(define-syntax emit ; maybe this is a little too much??? ... nah...
+(define (emit-raw str)
+  (display (string-append str "\n")))
+
+(define (proper-emit e) ; emits either the literal symbol or the unquoted value
+  (if (list? e)
+    (if (eq? 'unquote (car e))
+      (cadr e))
+    (->string e)))
+
+(define-syntax emit
   (er-macro-transformer
     (lambda (e r c)
-      (if (string? (cadr e)) ; emit a literal string
-	`(display ,(string-append (cadr e) "\n"))
-	(begin (if (not (eq? (length e) 4))
-		 (error "emit must contain an opcode and 2 arguments " e))
-	       (let ((op (cadr e)) (a (caddr e)) (b (cadddr e)))
-		 `(display (string-append ,(if (any (lambda (n) eq? n (string-ref (->string op) 0))
-						    '(#\: #\.))
-					     ""
-					     "\t")
-					  (string-append ,(if (list? op)
-							    (if (eq? 'unquote (car op))
-							      (cadr op))
-							    (->string op)) " "
-							 ,(make-arg a)  ", "
-							 ,(make-arg b) "\n")))))))))
+      (if (not (> (length e) 2)) (error "emit must contain an opcode" e))
+      (let ((op (cadr e)) (rest (cddr e)))
+	`(display (string-append ,(proper-emit op) " "
+				 (string-join ,(append '(list) (map proper-emit rest)) ", ")
+				 "\n"))))))
 
 ;;;
 
@@ -81,7 +80,7 @@
   (eq? 'let (car e)))
 
 (define (immediate-rep p) ; convert a lisp value to an immediate
-  (asm-value
+  (asm-value ; TODO: convert all these arithmetic shifts to logical shifts (find the proper function call)
     (cond
       ((integer? p) ; lower two bits are 00
        (arithmetic-shift p fixnum-shift))
@@ -93,12 +92,12 @@
        null-tag))))
 
 (define (emit-immediate e)
-  (emit movl (immediate-rep e) %eax))
+  (emit movl ,(immediate-rep e) %eax))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
-  (emit mov (immediate-rep #f) %ecx) ; move #t and #f into registers
-  (emit mov (immediate-rep #t) %edx)
-  (emit cmp val %eax)
+  (emit mov ,(immediate-rep #f) %ecx) ; move #t and #f into registers
+  (emit mov ,(immediate-rep #t) %edx)
+  (emit cmp ,val %eax)
   (emit cmovzl %edx %ecx)
   (emit mov %ecx %eax)) ; move the result to %eax
 
@@ -106,34 +105,34 @@
   (if (not (null? l))
     (begin
       (emit-expr (car l) si env)
-      (emit movl %eax (stack-pos si)) ; push value onto stack
+      (emit movl %eax ,(stack-pos si)) ; push value onto stack
       (emit-push-to-stack (cdr l) (- si word-size) env))))
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
-    (emit movl (stack-pos si) %eax)
+    (emit movl ,(stack-pos si) %eax)
     (begin
       (emit-apply-stack op (+ si word-size))
-      (emit ,op (stack-pos si) %eax))))
+      (emit ,op ,(stack-pos si) %eax))))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
-  (emit andl mask %eax))
+  (emit andl ,mask %eax))
 
 (define (emit-primative e si env)
   (case (car e)
     ((add1)
      (emit-expr (cadr e) si env)
-     (emit addl (immediate-rep 1) %eax))
+     (emit addl ,(immediate-rep 1) %eax))
     ((sub1)
      (emit-expr (cadr e) si env)
-     (emit subl (immediate-rep 1) %eax))
+     (emit subl ,(immediate-rep 1) %eax))
     ((integer->char)
      (emit-expr (cadr e) si env)
-     (emit shl (asm-value (- char-shift fixnum-shift)) %eax)
-     (emit orl (asm-value char-tag) %eax))
+     (emit shl ,(asm-value (- char-shift fixnum-shift)) %eax)
+     (emit orl ,(asm-value char-tag) %eax))
     ((char->integer)
      (emit-expr (cadr e) si env)
-     (emit shr (asm-value (- char-shift fixnum-shift)) %eax))
+     (emit shr ,(asm-value (- char-shift fixnum-shift)) %eax))
     ((null?)
      (emit-expr (cadr e) si env)
      (emit-cmp-eax (asm-value null-tag)))
@@ -162,7 +161,7 @@
 	((variable? e)
 	 (let ((v (lookup e env)))
 	   (if v
-	     (emit movl (stack-pos v) %eax)
+	     (emit movl ,(stack-pos v) %eax)
 	     (error "undefined binding" e))))
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
@@ -178,7 +177,7 @@
       (else
 	(let ((b (car b*)))
 	  (emit-expr (cadr b) si new-env)
-	  (emit movl %eax (stack-pos si))
+	  (emit movl %eax ,(stack-pos si))
 	  (f (cdr b*)
 	     (push-var (car b) si new-env)
 	     (- si word-size)))))))
@@ -186,9 +185,9 @@
 (define (compile-program p)
   (with-output-to-string
     (lambda ()
-      (emit ".globl scheme_entry") ; boilerplate
-      (emit ".code32") ; currently only supporting x86 asm
-      (emit ".type scheme_entry, @function")
-      (emit "scheme_entry:")
+      (emit-raw ".globl scheme_entry") ; boilerplate
+      (emit-raw ".code32") ; currently only supporting x86 asm
+      (emit-raw ".type scheme_entry, @function")
+      (emit-raw "scheme_entry:")
       (emit-expr p stack-start (make-env))
-      (emit "ret"))))
+      (emit-raw "ret"))))
