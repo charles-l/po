@@ -89,6 +89,18 @@
 (make-test `(if #f
 	      2
 	      3)		'eq? 3)
+(make-test `(if (zero? (+ 1 2 3 4))
+	      #\<
+	      #\>)		'eq? #\>)
+(make-test `(if (zero? (+ 1 2 -1 -2))
+	      #\<
+	      #\>)		'eq? #\<)
+(make-test `(if (eq? 1 2)
+	      #\y
+	      #\n)		'eq? #\n)
+(make-test `(if (eq? (+ 1 1) 2)
+	      #\y
+	      #\n)		'eq? #\y)
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")
