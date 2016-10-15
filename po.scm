@@ -42,7 +42,7 @@
   (display (string-append str "\n")))
 
 (define (emit-label e)
-  (display (string-append (->string e) ":")))
+  (display (string-append (->string e) ":\n")))
 
 (define (proper-emit e) ; emits either the literal symbol or the unquoted value
   (if (list? e)
@@ -55,7 +55,7 @@
     (lambda (e r c)
       (if (not (> (length e) 2)) (error "emit must contain an opcode" e))
       (let ((op (cadr e)) (rest (cddr e)))
-	`(display (string-append ,(proper-emit op) " "
+	`(display (string-append "\t" ,(proper-emit op) " "
 				 (string-join ,(append '(list) (map proper-emit rest)) ", ")
 				 "\n"))))))
 

@@ -28,9 +28,9 @@
 		     "/tmp/scheme_entry.s"
 		     (lambda () (display (compile-program expr))))
 		   (system "cp driver.c /tmp")
-		   (system "cd /tmp && cc -c scheme_entry.s && cc -o scheme_test driver.c scheme_entry.o &>/dev/null")
+		   (system "cd /tmp && cc -o scheme_test scheme_entry.s driver.c 2>/dev/null")
 		   (let ((r (with-input-from-pipe "cd /tmp && ./scheme_test" read)))
-		     (if (eval `(,cmp ,expect-val ,r))
+		     (if (eval `(,cmp ,expect-val ,r)) ; TODO: use unhygenic macros instead...
 		       (print-success "SUCCESS")
 		       (begin
 			 (set! failures
