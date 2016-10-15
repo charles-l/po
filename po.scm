@@ -20,44 +20,32 @@
 (define null-mask 255)
 (define null-tag 47)
 
-;;;
-
 ;;; emit dsl
-
-(define (register-name? sym)
-  (eq? #\% (string-ref (->string sym) 0)))
-
-(define (make-arg sym)
-  (if (register-name? sym)
-    (->string sym)
-    `(string-append (->string ,sym))))
 
 (define (uniq-label s)
   (->string (gensym s)))
 
-(define (asm-value v) ; stick a "$" at the start of an immediate asm value
+(define (asm-literal v) ; stick a "$" at the start of an immediate asm value
   (string-append "$" (->string v)))
-
-(define (emit-raw str)
-  (display (string-append str "\n")))
 
 (define (emit-label e)
   (display (string-append (->string e) ":\n")))
 
-(define (proper-emit e) ; emits either the literal symbol or the unquoted value
+(define (evaluate-arg e) ; emits either the literal symbol or the unquoted value
   (if (list? e)
     (if (eq? 'unquote (car e))
       (cadr e))
     (->string e)))
 
-(define-syntax emit
+(define-syntax emit ; magic emit macro - uses `,` for unquote, otherwise places the literal value
   (er-macro-transformer
     (lambda (e r c)
-      (if (not (> (length e) 2)) (error "emit must contain an opcode" e))
       (let ((op (cadr e)) (rest (cddr e)))
-	`(display (string-append "\t" ,(proper-emit op) " "
-				 (string-join ,(append '(list) (map proper-emit rest)) ", ")
-				 "\n"))))))
+	`(display
+	   (string-append "\t" ,(evaluate-arg op) " "
+			  ,(if rest
+			     `(string-join ,(append '(list) (map evaluate-arg rest)) ", "))
+			  "\n"))))))
 
 ;;;
 
@@ -86,7 +74,7 @@
   (eq? 'let (car e)))
 
 (define (immediate-rep p) ; convert a lisp value to an immediate
-  (asm-value ; TODO: convert all these arithmetic shifts to logical shifts (find the proper function call)
+  (asm-literal ; TODO: convert all these arithmetic shifts to logical shifts (find the proper function call)
     (cond
       ((integer? p) ; lower two bits are 00
        (arithmetic-shift p fixnum-shift))
@@ -134,25 +122,25 @@
      (emit subl ,(immediate-rep 1) %eax))
     ((integer->char)
      (emit-expr (cadr e) si env)
-     (emit shl ,(asm-value (- char-shift fixnum-shift)) %eax)
-     (emit orl ,(asm-value char-tag) %eax))
+     (emit shl ,(asm-literal (- char-shift fixnum-shift)) %eax)
+     (emit orl ,(asm-literal char-tag) %eax))
     ((char->integer)
      (emit-expr (cadr e) si env)
-     (emit shr ,(asm-value (- char-shift fixnum-shift)) %eax))
+     (emit shr ,(asm-literal (- char-shift fixnum-shift)) %eax))
     ((null?)
      (emit-expr (cadr e) si env)
-     (emit-cmp-eax (asm-value null-tag)))
+     (emit-cmp-eax (asm-literal null-tag)))
     ((integer?)
      (emit-expr (cadr e) si env)
-     (emit-mask-data (asm-value fixnum-mask))
-     (emit-cmp-eax (asm-value fixnum-tag)))
+     (emit-mask-data (asm-literal fixnum-mask))
+     (emit-cmp-eax (asm-literal fixnum-tag)))
     ((boolean?)
      (emit-expr (cadr e) si env)
-     (emit-mask-data (asm-value boolean-mask))
-     (emit-cmp-eax (asm-value boolean-tag)))
+     (emit-mask-data (asm-literal boolean-mask))
+     (emit-cmp-eax (asm-literal boolean-tag)))
     ((zero?)
      (emit-expr (cadr e) si env)
-     (emit-cmp-eax (asm-value 0)))
+     (emit-cmp-eax (asm-literal 0)))
     ((eq?)
      (emit-expr (cadr e) si env)
      (emit mov %eax %ebx)
@@ -208,9 +196,9 @@
 (define (compile-program p)
   (with-output-to-string
     (lambda ()
-      (emit-raw ".globl scheme_entry") ; boilerplate
-      (emit-raw ".code32") ; currently only supporting x86 asm
-      (emit-raw ".type scheme_entry, @function")
+      (emit .globl scheme_entry) ; boilerplate
+      (emit .code32) ; currently only supporting x86 asm
+      (emit .type scheme_entry @function)
       (emit-label 'scheme_entry)
       (emit-expr p stack-start (make-env))
-      (emit-raw "ret"))))
+      (emit ret))))
