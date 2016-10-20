@@ -200,5 +200,6 @@
       (emit .code32) ; currently only supporting x86 asm
       (emit .type scheme_entry @function)
       (emit-label 'scheme_entry)
+      (emit movl "8(%esp)" %esi) ; mov heap pointer to esi
       (emit-expr p stack-start (make-env))
       (emit ret))))

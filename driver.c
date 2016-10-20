@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <stdlib.h>
+
+#define HEAP_SIZE (16 * 1024 * 1024) // normal page size
 
 #define fixnum_mask    3
 #define fixnum_tag     0
@@ -17,7 +20,8 @@
 #define null_shift     0
 
 int main() {
-    int val = scheme_entry();
+    char *heap = malloc(HEAP_SIZE);
+    int val = scheme_entry(heap);
     //printf("D: %d\n", val);
     if((val & fixnum_mask) == fixnum_tag) {
         printf("%d\n", val >> fixnum_shift);
