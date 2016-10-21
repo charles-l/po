@@ -1,5 +1,7 @@
 (use posix utils fmt fmt-color srfi-13)
 (load "po.scm")
+(system "mkdir /tmp/po_tests")
+(system "cp driver.c /tmp/po_tests") ; move driver to working dir
 
 ;; util
 
@@ -25,11 +27,10 @@
 			      (string-pad (string-upcase (symbol->string cmp)) 10) " "
 			      (string-pad-right (->string expect-val) 5)))
 		   (with-output-to-file
-		     "/tmp/scheme_entry.s"
+		     "/tmp/po_tests/scheme_entry.s"
 		     (lambda () (display (compile-program expr))))
-		   (system "cp driver.c /tmp")
-		   (system "cd /tmp && cc -m32 -o scheme_test scheme_entry.s driver.c 2>/dev/null")
-		   (let ((r (with-input-from-pipe "cd /tmp && ./scheme_test" read)))
+		   (system "cd /tmp/po_tests && cc -malign-double -m32 -o scheme_test scheme_entry.s driver.c 2>/dev/null")
+		   (let ((r (with-input-from-pipe "cd /tmp/po_tests && ./scheme_test" read)))
 		     (if (eval `(,cmp ,expect-val ,r)) ; TODO: use unhygenic macros instead...
 		       (print-success "SUCCESS")
 		       (begin
@@ -101,6 +102,12 @@
 (make-test `(if (eq? (+ 1 1) 2)
 	      #\y
 	      #\n)		'eq? #\y)
+
+
+(make-test `(car (cons (+ 1 3) 2))	'eq? 4)
+(make-test `(cdr (cons (+ 1 3) 2))	'eq? 2)
+(make-test `(let ((a (cons 10 20)))
+	      (car a))			'eq? 10)
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")

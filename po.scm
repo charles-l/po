@@ -1,6 +1,7 @@
 (use format srfi-1)
 
 (define word-size 4)
+(define double-word (* 2 word-size))
 (define stack-start (- word-size)) ; start of the stack (offset of %esp)
 
 ;;; data types
@@ -20,12 +21,23 @@
 (define null-mask 255)
 (define null-tag 47)
 
+;;; heap data types
+
+(define heap-mask 7)
+(define heap-shift 3)
+
+(define pair-tag 1)
+(define vector-tag 2)
+(define string-tag 3)
+(define symbol-tag 5)
+(define closure-tag 6)
+
 ;;; emit dsl
 
 (define (uniq-label s)
   (->string (gensym s)))
 
-(define (asm-literal v) ; stick a "$" at the start of an immediate asm value
+(define ($ v) ; stick a "$" at the start of an immediate asm value
   (string-append "$" (->string v)))
 
 (define (emit-label e)
@@ -47,44 +59,6 @@
 			     `(string-join ,(append '(list) (map evaluate-arg rest)) ", "))
 			  "\n"))))))
 
-;;;
-
-(define (make-env) '())
-
-(define (lookup var env) ; returns the stack offset of a variable in env
-  (cadr (or (assoc var env) '(#f #f))))
-
-(define (push-var var si env)
-  `((,var ,si) . ,env))
-
-(define (stack-pos si)
-  (if (zero? si) (error "0(%esp) can't be set"))
-  (string-append (->string si) "(%esp)"))
-
-(define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
-  (or (integer? v) (char? v) (boolean? v) (null? v)))
-
-(define (variable? v)
-  (symbol? v))
-
-(define (primcall? e) ; a built in function call
-  (> (length e) 1))
-
-(define (let? e) ; TODO: add more syntax check here
-  (eq? 'let (car e)))
-
-(define (immediate-rep p) ; convert a lisp value to an immediate
-  (asm-literal ; TODO: convert all these arithmetic shifts to logical shifts (find the proper function call)
-    (cond
-      ((integer? p) ; lower two bits are 00
-       (arithmetic-shift p fixnum-shift))
-      ((char? p)    ; lower eight bits are 00001111
-       (bitwise-ior (arithmetic-shift (char->integer p) char-shift) char-tag))
-      ((boolean? p) ; lower 7 bits are 0011111
-       (bitwise-ior (arithmetic-shift (if p 1 0) boolean-shift) boolean-tag))
-      ((null? p)    ; lower 8 bits are 00101111
-       null-tag))))
-
 (define (emit-immediate e)
   (emit movl ,(immediate-rep e) %eax))
 
@@ -95,12 +69,15 @@
   (emit cmovzl %edx %ecx)
   (emit mov %ecx %eax)) ; move the result to %eax
 
-(define (emit-push-to-stack l si env) ; push a list to the stack
+(define (emit-push-all-to-stack l si env) ; push a list to the stack
   (if (not (null? l))
     (begin
       (emit-expr (car l) si env)
       (emit movl %eax ,(stack-pos si)) ; push value onto stack
-      (emit-push-to-stack (cdr l) (- si word-size) env))))
+      (emit-push-all-to-stack (cdr l) (- si word-size) env))))
+
+(define (emit-allocate-heap-value . args)
+  (emit movl v ,(string-append offset "(%esi)")))
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
@@ -122,38 +99,54 @@
      (emit subl ,(immediate-rep 1) %eax))
     ((integer->char)
      (emit-expr (cadr e) si env)
-     (emit shl ,(asm-literal (- char-shift fixnum-shift)) %eax)
-     (emit orl ,(asm-literal char-tag) %eax))
+     (emit shl ,($ (- char-shift fixnum-shift)) %eax)
+     (emit orl ,($ char-tag) %eax))
     ((char->integer)
      (emit-expr (cadr e) si env)
-     (emit shr ,(asm-literal (- char-shift fixnum-shift)) %eax))
+     (emit shr ,($ (- char-shift fixnum-shift)) %eax))
     ((null?)
      (emit-expr (cadr e) si env)
-     (emit-cmp-eax (asm-literal null-tag)))
+     (emit-cmp-eax ($ null-tag)))
     ((integer?)
      (emit-expr (cadr e) si env)
-     (emit-mask-data (asm-literal fixnum-mask))
-     (emit-cmp-eax (asm-literal fixnum-tag)))
+     (emit-mask-data ($ fixnum-mask))
+     (emit-cmp-eax ($ fixnum-tag)))
     ((boolean?)
      (emit-expr (cadr e) si env)
-     (emit-mask-data (asm-literal boolean-mask))
-     (emit-cmp-eax (asm-literal boolean-tag)))
+     (emit-mask-data ($ boolean-mask))
+     (emit-cmp-eax ($ boolean-tag)))
     ((zero?)
      (emit-expr (cadr e) si env)
-     (emit-cmp-eax (asm-literal 0)))
+     (emit-cmp-eax ($ 0)))
     ((eq?)
      (emit-expr (cadr e) si env)
      (emit mov %eax %ebx)
      (emit-expr (caddr e) si env)
      (emit-cmp-eax "%ebx"))
     ((+)
-     (emit-push-to-stack (cdr e) si env)
+     (emit-push-all-to-stack (cdr e) si env)
      (emit-apply-stack "addl" (- (* word-size (length (cdr e))))))
     ((-)
-     (emit-push-to-stack (cdr e) si env)
+     (emit-push-all-to-stack (cdr e) si env)
      (emit-apply-stack "subl" (- (* word-size (length (cdr e))))))
     ((if)
-     (emit-if (cadr e) (caddr e) (cadddr e) si env))))
+     (emit-if (cadr e)
+              (caddr e)
+              (cadddr e) si env))
+    ((cons)
+     (emit-expr (cadr e) si env)
+     (emit movl %eax "0(%esi)")
+     (emit-expr (caddr e) si env)
+     (emit movl %eax "4(%esi)")
+     (emit movl %esi %eax)
+     (emit orl ,($ 1) %eax)
+     (emit addl ,($ double-word) %esi))
+    ((car) ; TODO: check that type is a pair
+     (emit-expr (cadr e) si env)
+     (emit movl "-1(%eax)" %eax))
+    ((cdr) ; TODO: check that type is a pair
+     (emit-expr (cadr e) si env)
+     (emit movl "3(%eax)" %eax))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -193,6 +186,44 @@
     (emit-expr else-expr si env)
     (emit-label L1)))
 
+;;;
+
+(define (make-env) '())
+
+(define (lookup var env) ; returns the stack offset of a variable in env
+  (cadr (or (assoc var env) '(#f #f))))
+
+(define (push-var var si env)
+  `((,var ,si) . ,env))
+
+(define (stack-pos si)
+  (if (zero? si) (error "0(%esp) can't be set"))
+  (string-append (->string si) "(%esp)"))
+
+(define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
+  (or (integer? v) (char? v) (boolean? v) (null? v)))
+
+(define (variable? v)
+  (symbol? v))
+
+(define (primcall? e) ; a built in function call
+  (> (length e) 1))
+
+(define (let? e) ; TODO: add more syntax check here
+  (eq? 'let (car e)))
+
+(define (immediate-rep p) ; convert a lisp value to an immediate
+  ($ ; TODO: convert all these arithmetic shifts to logical shifts (find the proper function call)
+    (cond
+      ((integer? p) ; lower two bits are 00
+       (arithmetic-shift p fixnum-shift))
+      ((char? p)    ; lower eight bits are 00001111
+       (bitwise-ior (arithmetic-shift (char->integer p) char-shift) char-tag))
+      ((boolean? p) ; lower 7 bits are 0011111
+       (bitwise-ior (arithmetic-shift (if p 1 0) boolean-shift) boolean-tag))
+      ((null? p)    ; lower 8 bits are 00101111
+       null-tag))))
+
 (define (compile-program p)
   (with-output-to-string
     (lambda ()
@@ -200,6 +231,6 @@
       (emit .code32) ; currently only supporting x86 asm
       (emit .type scheme_entry @function)
       (emit-label 'scheme_entry)
-      (emit movl "8(%esp)" %esi) ; mov heap pointer to esi
+      (emit movl "4(%esp)" %esi) ; mov heap pointer to esi
       (emit-expr p stack-start (make-env))
       (emit ret))))
