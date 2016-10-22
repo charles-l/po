@@ -73,11 +73,8 @@
   (if (not (null? l))
     (begin
       (emit-expr (car l) si env)
-      (emit movl %eax ,(stack-pos si)) ; push value onto stack
+      (emit-push-to-stack si)
       (emit-push-all-to-stack (cdr l) (- si word-size) env))))
-
-(define (emit-allocate-heap-value . args)
-  (emit movl v ,(string-append offset "(%esi)")))
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
@@ -85,6 +82,9 @@
     (begin
       (emit-apply-stack op (+ si word-size))
       (emit ,op ,(stack-pos si) %eax))))
+
+(define (emit-push-to-stack si)
+  (emit movl %eax ,(stack-pos si)))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
   (emit andl ,mask %eax))
@@ -134,12 +134,16 @@
               (caddr e)
               (cadddr e) si env))
     ((cons)
+     (emit addl ,($ double-word) %esi)
      (emit-expr (cadr e) si env)
+     (emit subl ,($ double-word) %esi)
      (emit movl %eax "0(%esi)")
+     (emit addl ,($ double-word) %esi)
      (emit-expr (caddr e) si env)
+     (emit subl ,($ double-word) %esi)
      (emit movl %eax "4(%esi)")
      (emit movl %esi %eax)
-     (emit orl ,($ 1) %eax)
+     (emit orl  ,($ pair-tag) %eax)
      (emit addl ,($ double-word) %esi))
     ((car) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)

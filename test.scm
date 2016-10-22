@@ -1,7 +1,4 @@
 (use posix utils fmt fmt-color srfi-13)
-(load "po.scm")
-(system "mkdir /tmp/po_tests")
-(system "cp driver.c /tmp/po_tests") ; move driver to working dir
 
 ;; util
 
@@ -14,7 +11,11 @@
 (define (print-fail str)
   (print (fmt #f (fmt-red str))))
 
-;;
+;; init tests
+
+(load "po.scm")
+(system "mkdir -p /tmp/po_tests")
+(system "cp driver.c /tmp/po_tests") ; move driver to working dir
 
 (define failures '()) ; hold test failures in the form ((expr cmp expect-val) . (actual-result assembly-string))
 
@@ -36,7 +37,7 @@
 		       (begin
 			 (set! failures
 			   (append failures
-				   `(((,expr ,cmp ,expect-val) . (,r ,(read-all "/tmp/scheme_entry.s"))))))
+				   `(((,expr ,cmp ,expect-val) . (,r ,(read-all "/tmp/po_tests/scheme_entry.s"))))))
 			 (print-fail "FAILED"))))))))
 
 (make-test 0			'eq? 0)
@@ -102,12 +103,12 @@
 (make-test `(if (eq? (+ 1 1) 2)
 	      #\y
 	      #\n)		'eq? #\y)
-
-
 (make-test `(car (cons (+ 1 3) 2))	'eq? 4)
 (make-test `(cdr (cons (+ 1 3) 2))	'eq? 2)
 (make-test `(let ((a (cons 10 20)))
 	      (car a))			'eq? 10)
+(make-test `(car (cons 1 (cons 1 '()))) 'eq? 1)
+(make-test `(car (cdr (cons 1 (cons 2 '())))) 'eq? 2)
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")
