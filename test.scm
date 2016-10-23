@@ -111,6 +111,11 @@
 (make-test `(let ((a (cons 1 (cons 3 (cons 2 '())))))
 	      (let ((b (cons 3 a)))
 		(car (cdr b))))		'eq? 1)
+(make-test `(let ((a (cons 1 (cons 3 (cons 2 '())))))
+	      (let ((b (cons 3 a)))
+		(car b)))		'eq? 3)
+(make-test `(let ((a (cons 1 (cons 2 ,'()))))
+	      (cdr (cdr a)))	'eq? '(quote ()))
 ;(make-test `(make-vector 0)		'eq? #())
 
 (if (null? failures)
