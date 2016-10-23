@@ -30,7 +30,7 @@
 		   (with-output-to-file
 		     "/tmp/po_tests/scheme_entry.s"
 		     (lambda () (display (compile-program expr))))
-		   (system "cd /tmp/po_tests && cc -malign-double -m32 -o scheme_test scheme_entry.s driver.c 2>/dev/null")
+		   (system "cd /tmp/po_tests && cc -std=c99 -g -malign-double -m32 -o scheme_test scheme_entry.s driver.c 2>/dev/null")
 		   (let ((r (with-input-from-pipe "cd /tmp/po_tests && ./scheme_test" read)))
 		     (if (eval `(,cmp ,expect-val ,r)) ; TODO: use unhygenic macros instead...
 		       (print-success "SUCCESS")
@@ -108,7 +108,10 @@
 (make-test `(let ((a (cons 10 20)))
 	      (car a))			'eq? 10)
 (make-test `(car (cons 1 (cons 1 '()))) 'eq? 1)
-(make-test `(car (cdr (cons 1 (cons 2 '())))) 'eq? 2)
+(make-test `(let ((a (cons 1 (cons 3 (cons 2 '())))))
+	      (let ((b (cons 3 a)))
+		(car (cdr b))))		'eq? 1)
+;(make-test `(make-vector 0)		'eq? #())
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")

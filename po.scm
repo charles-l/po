@@ -134,23 +134,34 @@
               (caddr e)
               (cadddr e) si env))
     ((cons)
-     (emit addl ,($ double-word) %esi)
-     (emit-expr (cadr e) si env)
-     (emit subl ,($ double-word) %esi)
-     (emit movl %eax "0(%esi)")
-     (emit addl ,($ double-word) %esi)
-     (emit-expr (caddr e) si env)
-     (emit subl ,($ double-word) %esi)
-     (emit movl %eax "4(%esi)")
+     (emit-expr (cadr e) si env) ; compile sub exprs first
+     (emit-push-to-stack si) ; and push scratch to stack
+
+     (emit-expr (caddr e) (- si word-size) env)
+     (emit movl %eax "4(%esi)") ; second word of esi
+
+     (emit movl ,(stack-pos si) %eax) ; move from stack to
+     (emit movl %eax "0(%esi)") ; first word of esi
+
      (emit movl %esi %eax)
-     (emit orl  ,($ pair-tag) %eax)
-     (emit addl ,($ double-word) %esi))
+     (emit orl  ,($ pair-tag) %eax) ; mark as pair
+     (emit addl ,($ double-word) %esi)) ; bump esi forward
     ((car) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)
      (emit movl "-1(%eax)" %eax))
     ((cdr) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)
-     (emit movl "3(%eax)" %eax))))
+     (emit movl "3(%eax)" %eax))
+    ((make-vector)
+     (emit-expr (cadr e) si env)
+     (emit movl %eax "0(%esi)")
+     (emit movl %eax %ebx)
+     (emit movl %esi %eax)
+     (emit orl ,($ vector-tag) %eax)
+     (emit addl ,($ 11) %ebx)
+     (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
+     (emit addl %ebx %esi))
+    ))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
