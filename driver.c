@@ -87,6 +87,21 @@ po_immediate cdr(po_immediate val) {
     return *((po_immediate *) ((unsigned char *) val + 3));
 }
 
+po_immediate len(po_immediate val) {
+    assert((val & heap_mask) == STRING || (val & heap_mask) == VECTOR);
+    int shift = (val & heap_mask);
+    return *((po_immediate *) ((unsigned char *) val - shift)) >> fixnum_shift;
+}
+
+char string_ref(po_immediate val, unsigned int i) {
+    assert((val & heap_mask) == STRING);
+    return *((char *) ((unsigned char *) val - STRING + 1 + i));
+}
+
+po_immediate vector_ref(po_immediate val, unsigned int i) {
+    return *((unsigned char *) val + i + 1);
+}
+
 void dump_heap(void *heap) {
     for(int i = 0; i < 20; i++) {
         int t = ((po_immediate *) heap)[i] & heap_mask;
@@ -116,11 +131,14 @@ void print_val(po_immediate val) {
             printf(".");
             print_val(cdr(val));
             printf(")");
-        } else if((val & heap_mask) == VECTOR)
-            printf("VECT");
-        else if((val & heap_mask) == STRING)
-            printf("STR");
-        else if((val & heap_mask) == SYMBOL)
+        } else if((val & heap_mask) == VECTOR) {
+            printf("#()");
+            printf("\nlen: %i", len(val));
+        } else if((val & heap_mask) == STRING) {
+            printf("\"\"");
+            printf("\nlen: %i", len(val));
+            printf("\nchar 0: %i", string_ref(val, 0));
+        } else if((val & heap_mask) == SYMBOL)
             printf("SYM");
         else if((val & heap_mask) == CLOSURE)
             printf("CLOSURE");

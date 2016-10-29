@@ -154,14 +154,28 @@
      (emit movl "3(%eax)" %eax))
     ((make-vector)
      (emit-expr (cadr e) si env)
-     (emit movl %eax "0(%esi)")
+     (emit movl %eax "0(%esi)") ; maybe shift 2 right (no real need for immediate)?
      (emit movl %eax %ebx)
      (emit movl %esi %eax)
      (emit orl ,($ vector-tag) %eax)
      (emit addl ,($ 11) %ebx)
      (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
      (emit addl %ebx %esi))
-    ))
+    ((make-string)
+     (emit-expr (cadr e) si env)
+     (emit movl %eax "0(%esi)")
+     (emit movl %eax %ebx)
+     (emit movl %esi %eax)
+     (emit orl ,($ string-tag) %eax)
+     (emit addl ,($ 11) %ebx)
+     (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
+     (emit addl %ebx %esi))
+    ((string-ref)
+     (emit-expr (cadr e) si env) ; string
+     (emit mov %eax %ebx)
+     (emit-expr (caddr e) si env)
+     (emit subl %eax %ebx)
+     (emit "-1(%ebx)" %eax))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
