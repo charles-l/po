@@ -161,6 +161,12 @@
      (emit addl ,($ 11) %ebx)
      (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
      (emit addl %ebx %esi))
+    ((vector-length)
+     (emit-expr (cadr e) si env)
+     (emit movl ,(string-append "-" (->string vector-tag) "(%eax)") %eax))
+    ((string-length)
+     (emit-expr (cadr e) si env)
+     (emit movl ,(string-append "-" (->string string-tag) "(%eax)") %eax))
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit movl %eax "0(%esi)")
@@ -169,13 +175,7 @@
      (emit orl ,($ string-tag) %eax)
      (emit addl ,($ 11) %ebx)
      (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
-     (emit addl %ebx %esi))
-    ((string-ref)
-     (emit-expr (cadr e) si env) ; string
-     (emit mov %eax %ebx)
-     (emit-expr (caddr e) si env)
-     (emit subl %eax %ebx)
-     (emit "-1(%ebx)" %eax))))
+     (emit addl %ebx %esi))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)

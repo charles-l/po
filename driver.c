@@ -87,7 +87,7 @@ po_immediate cdr(po_immediate val) {
     return *((po_immediate *) ((unsigned char *) val + 3));
 }
 
-po_immediate len(po_immediate val) {
+int len(po_immediate val) {
     assert((val & heap_mask) == STRING || (val & heap_mask) == VECTOR);
     int shift = (val & heap_mask);
     return *((po_immediate *) ((unsigned char *) val - shift)) >> fixnum_shift;

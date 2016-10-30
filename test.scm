@@ -38,8 +38,11 @@
 			 (set! failures
 			   (append failures
 				   `(((,expr ,cmp ,expect-val) . (,r ,(read-all "/tmp/po_tests/scheme_entry.s"))))))
-			 (print-fail "FAILED"))))))))
+			 (print-fail "FAILED")
+			 (exit 1))))))))
 
+(make-test `(vector-length (make-vector 2))		'eq? 2)
+(make-test `(string-length (make-string 4))		'eq? 4)
 (make-test 0			'eq? 0)
 (make-test 3			'eq? 3)
 (make-test -3			'eq? -3)
@@ -116,7 +119,6 @@
 		(car b)))		'eq? 3)
 (make-test `(let ((a (cons 1 (cons 2 ,'()))))
 	      (cdr (cdr a)))	'eq? '(quote ()))
-;(make-test `(make-vector 0)		'eq? #())
 
 (if (null? failures)
   (print-success "ALL TESTS PASSED")
