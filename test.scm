@@ -11,13 +11,20 @@
 (define (print-fail str)
   (print (fmt #f (fmt-red str))))
 
+(define (asm-tree-to-str tree)
+  (string-join (apply append
+		      (map (lambda (n)
+			     (list (conc (->string (car n)) " " (string-join (map ->string (cdr n)) ", "))))
+			   (compile-program tree)))
+	       "\n"))
+
 ;; init tests
 
 (load "po.scm")
 (system "mkdir -p /tmp/po_tests")
 (system "cp driver.c /tmp/po_tests") ; move driver to working dir
 
-(define-syntax make-test ; TODO: prettify this
+(define-syntax make-test ; TODO: don't do this
   (syntax-rules ()
 		((make-test expr cmp expect-val)
 		 (begin
@@ -27,7 +34,8 @@
 			      (string-pad-right (->string expect-val) 5)))
 		   (with-output-to-file
 		     "/tmp/po_tests/scheme_entry.s"
-		     (lambda () (display (compile-program expr))))
+		     (lambda ()
+		       (print (asm-tree-to-str expr))))
 		   (system "cd /tmp/po_tests && cc -std=c99 -g -malign-double -m32 -o scheme_test scheme_entry.s driver.c 2>/dev/null")
 		   (let ((r (with-input-from-pipe "cd /tmp/po_tests && ./scheme_test" read)))
 		     (if (eval `(,cmp ,expect-val ,r)) ; TODO: use unhygenic macros instead...

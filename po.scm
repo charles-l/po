@@ -35,39 +35,26 @@
 ;;; emit dsl
 
 (define (uniq-label s)
-  (->string (gensym s)))
+  (gensym s))
 
 (define ($ v) ; stick a "$" at the start of an immediate asm value
-  (string-append "$" (->string v)))
+  (symbol-append '$ (string->symbol (->string v))))
 
-(define (emit-label e)
-  (display (string-append (->string e) ":\n")))
+(define (label e)
+  (symbol-append e ':))
 
-(define (evaluate-arg e) ; emits either the literal symbol or the unquoted value
-  (if (list? e)
-    (if (eq? 'unquote (car e))
-      (cadr e))
-    (->string e)))
-
-(define-syntax emit ; magic emit macro - uses `,` for unquote, otherwise places the literal value
-  (er-macro-transformer
-    (lambda (e r c)
-      (let ((op (cadr e)) (rest (cddr e)))
-	`(display
-	   (string-append "\t" ,(evaluate-arg op) " "
-			  ,(if rest
-			     `(string-join ,(append '(list) (map evaluate-arg rest)) ", "))
-			  "\n"))))))
+(define (emit . args)
+  (set! asm-list (append asm-list `(,args))))
 
 (define (emit-immediate e)
-  (emit movl ,(immediate-rep e) %eax))
+  (emit 'movl (immediate-rep e) '%eax))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
-  (emit mov ,(immediate-rep #f) %ecx) ; move #t and #f into registers
-  (emit mov ,(immediate-rep #t) %edx)
-  (emit cmpl ,val %eax)
-  (emit cmovzl %edx %ecx)
-  (emit mov %ecx %eax)) ; move the result to %eax
+  (emit 'movl (immediate-rep #f) '%ecx) ; move #t and #f into registers
+  (emit 'movl (immediate-rep #t) '%edx)
+  (emit 'cmpl val '%eax)
+  (emit 'cmovzl '%edx '%ecx)
+  (emit 'movl '%ecx '%eax)) ; move the result to %eax
 
 (define (emit-push-all-to-stack l si env) ; push a list to the stack
   (if (not (null? l))
@@ -78,32 +65,32 @@
 
 (define (emit-apply-stack op si) ; apply an operator to a stack
   (if (>= si (- word-size))
-    (emit movl ,(stack-pos si) %eax)
+    (emit 'movl (stack-pos si) '%eax)
     (begin
       (emit-apply-stack op (+ si word-size))
-      (emit ,op ,(stack-pos si) %eax))))
+      (emit op (stack-pos si) '%eax))))
 
 (define (emit-push-to-stack si)
-  (emit movl %eax ,(stack-pos si)))
+  (emit 'movl '%eax (stack-pos si)))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
-  (emit andl ,mask %eax))
+  (emit 'andl mask '%eax))
 
 (define (emit-primative e si env)
   (case (car e)
     ((add1)
      (emit-expr (cadr e) si env)
-     (emit addl ,(immediate-rep 1) %eax))
+     (emit 'addl (immediate-rep 1) '%eax))
     ((sub1)
      (emit-expr (cadr e) si env)
-     (emit subl ,(immediate-rep 1) %eax))
+     (emit 'subl (immediate-rep 1) '%eax))
     ((integer->char)
      (emit-expr (cadr e) si env)
-     (emit shl ,($ (- char-shift fixnum-shift)) %eax)
-     (emit orl ,($ char-tag) %eax))
+     (emit 'shl ($ (- char-shift fixnum-shift)) '%eax)
+     (emit 'orl ($ char-tag) '%eax))
     ((char->integer)
      (emit-expr (cadr e) si env)
-     (emit shr ,($ (- char-shift fixnum-shift)) %eax))
+     (emit 'shr ($ (- char-shift fixnum-shift)) '%eax))
     ((null?)
      (emit-expr (cadr e) si env)
      (emit-cmp-eax ($ null-tag)))
@@ -120,7 +107,7 @@
      (emit-cmp-eax ($ 0)))
     ((eq?)
      (emit-expr (cadr e) si env)
-     (emit mov %eax %ebx)
+     (emit 'mov '%eax '%ebx)
      (emit-expr (caddr e) si env)
      (emit-cmp-eax "%ebx"))
     ((+)
@@ -132,78 +119,78 @@
     ((if)
      (let ((L0 (uniq-label 'if)) (L1 (uniq-label 'else)))
        (emit-expr (cadr e) si env)
-       (emit cmpl ,(immediate-rep #f) %eax)
-       (emit je ,L0)
+       (emit 'cmpl (immediate-rep #f) '%eax)
+       (emit 'je L0)
        (emit-expr (caddr e) si env)
-       (emit jmp ,L1)
-       (emit-label L0)
+       (emit 'jmp L1)
+       (emit (label L0))
        (emit-expr (cadddr e) si env)
-       (emit-label L1)))
+       (emit (label L1))))
     ((cons)
      (emit-expr (cadr e) si env) ; compile sub exprs first
      (emit-push-to-stack si) ; and push scratch to stack
 
      (emit-expr (caddr e) (- si word-size) env)
-     (emit movl %eax "4(%esi)") ; second word of esi
+     (emit 'movl '%eax "4(%esi)") ; second word of esi
 
-     (emit movl ,(stack-pos si) %eax) ; move from stack to
-     (emit movl %eax "0(%esi)") ; first word of esi
+     (emit 'movl (stack-pos si) '%eax) ; move from stack to
+     (emit 'movl '%eax "0(%esi)") ; first word of esi
 
-     (emit movl %esi %eax)
-     (emit orl  ,($ pair-tag) %eax) ; mark as pair
-     (emit addl ,($ double-word) %esi)) ; bump esi forward
+     (emit 'movl '%esi '%eax)
+     (emit 'orl  ($ pair-tag) '%eax) ; mark as pair
+     (emit 'addl ($ double-word) '%esi)) ; bump esi forward
     ((car) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)
-     (emit movl "-1(%eax)" %eax))
+     (emit 'movl "-1(%eax)" '%eax))
     ((cdr) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)
-     (emit movl "3(%eax)" %eax))
-    ((make-vector)
+     (emit 'movl "3(%eax)" '%eax))
+    ((make-vector) ; TODO: add vector-set and vector-ref
      (emit-expr (cadr e) si env)
-     (emit movl %eax "0(%esi)") ; maybe shift 2 right (no real need for immediate)?
-     (emit movl %eax %ebx)
-     (emit movl %esi %eax)
-     (emit orl ,($ vector-tag) %eax)
-     (emit addl ,($ 11) %ebx)
-     (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
-     (emit addl %ebx %esi))
+     (emit 'movl '%eax "0(%esi)") ; maybe shift 2 right (no real need for immediate)?
+     (emit 'movl '%eax '%ebx)
+     (emit 'movl '%esi '%eax)
+     (emit 'orl ($ vector-tag) '%eax)
+     (emit 'addl ($ 11) '%ebx)
+     (emit 'andl ($ -8) '%ebx) ; clear out the lower 3 bits
+     (emit 'addl '%ebx '%esi))
     ((vector-length)
      (emit-expr (cadr e) si env)
-     (emit movl ,(string-append "-" (->string vector-tag) "(%eax)") %eax))
+     (emit 'movl (string-append (->string (- vector-tag)) "(%eax)") '%eax))
     ((make-string)
      (emit-expr (cadr e) si env)
-     (emit shr ,($ fixnum-shift) %eax) ; no need for type data - we already know it's a uint
-     (emit movl %eax "0(%esi)") ; and yes - you can hold up to a 4GB string
-     (emit movl %eax %ebx)
-     (emit movl %esi %eax)
-     (emit orl ,($ string-tag) %eax)
-     (emit addl ,($ 11) %ebx)
-     (emit andl ,($ -8) %ebx) ; clear out the lower 3 bits
-     (emit addl %ebx %esi))
+     (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
+     (emit 'movl '%eax "0(%esi)") ; and yes - you can hold up to a 4GB string
+     (emit 'movl '%eax '%ebx)
+     (emit 'movl '%esi '%eax)
+     (emit 'orl ($ string-tag) '%eax)
+     (emit 'addl ($ 11) '%ebx)
+     (emit 'andl ($ -8) '%ebx) ; clear out the lower 3 bits
+     (emit 'addl '%ebx '%esi))
     ((string-length)
      (emit-expr (cadr e) si env)
-     (emit movl ,(string-append "-" (->string string-tag) "(%eax)") %eax)
-     (emit shl  ,($ fixnum-shift) %eax)) ; shift back to typed fixnum
+     (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
+     (emit 'shl  ($ fixnum-shift) '%eax)) ; shift back to typed fixnum
     ((string-set!)
      (emit-expr (cadr e) si env)
-     (emit movl %eax %ecx) ; string
-     (emit movl %eax %edx) ; save original string ptr for later
+     (emit 'movl '%eax '%ecx) ; string
+     (emit 'movl '%eax '%edx) ; save original string ptr for later
      (emit-expr (caddr e) si env)
-     (emit movl %eax %ebx) ; index
-     (emit shr  ,($ fixnum-shift) %ebx)
+     (emit 'movl '%eax '%ebx) ; index
+     (emit 'shr  ($ fixnum-shift) '%ebx)
      (emit-expr (cadddr e) si env) ; char
-     (emit addl %ebx %ecx)
-     (emit shr  ,($ char-shift) %eax)
-     (emit movb %eax ,(string-append "-" (->string (- string-tag 4)) "(%ecx)"))
-     (emit movl %edx %eax))
+     (emit 'addl '%ebx '%ecx)
+     (emit 'shr  ($ char-shift) '%eax)
+     (emit 'movb '%eax (string-append (->string (- (- string-tag 4))) "(%ecx)"))
+     (emit 'movl '%edx '%eax))
     ((string-ref)
      (emit-expr (cadr e) si env) ; string
-     (emit movl %eax %ecx)
+     (emit 'movl '%eax '%ecx)
      (emit-expr (caddr e) si env) ; index
-     (emit shr  ,($ fixnum-shift) %eax)
-     (emit addl %eax %ecx)
-     (emit movb ,(string-append "-" (->string (- string-tag 4)) "(%ecx)") %ah)
-     (emit orl  ,($ char-tag) %eax))))
+     (emit 'shr  ($ fixnum-shift) '%eax)
+     (emit 'addl '%eax '%ecx)
+     (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
+     (emit 'orl  ($ char-tag) '%eax))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -211,7 +198,7 @@
 	((variable? e)
 	 (let ((v (lookup e env)))
 	   (if v
-	     (emit movl ,(stack-pos v) %eax)
+	     (emit 'movl (stack-pos v) '%eax)
 	     (error "undefined binding" e))))
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
@@ -227,7 +214,7 @@
       (else
 	(let ((b (car b*)))
 	  (emit-expr (cadr b) si new-env)
-	  (emit movl %eax ,(stack-pos si))
+	  (emit 'movl '%eax (stack-pos si))
 	  (f (cdr b*)
 	     (push-var (car b) si new-env)
 	     (- si word-size)))))))
@@ -270,13 +257,14 @@
       ((null? p)    ; lower 8 bits are 00101111
        null-tag))))
 
+(define asm-list)
 (define (compile-program p)
-  (with-output-to-string
-    (lambda ()
-      (emit .globl scheme_entry) ; boilerplate
-      (emit .code32) ; currently only supporting x86 asm
-      (emit .type scheme_entry @function)
-      (emit-label 'scheme_entry)
-      (emit movl "4(%esp)" %esi) ; mov heap pointer to esi
-      (emit-expr p stack-start (make-env))
-      (emit ret))))
+  (fluid-let ((asm-list '()))
+	     (emit '.globl 'scheme_entry) ; boilerplate
+	     (emit '.code32) ; currently only supporting x86 asm
+	     (emit '.type 'scheme_entry '@function)
+	     (emit (label 'scheme_entry))
+	     (emit 'movl "4(%esp)" '%esi) ; mov heap pointer to esi
+	     (emit-expr p stack-start (make-env))
+	     (emit 'ret)
+	     asm-list))
