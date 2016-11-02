@@ -181,7 +181,7 @@
      (emit-expr (cadddr e) si env) ; char
      (emit 'addl '%ebx '%ecx)
      (emit 'shr  ($ char-shift) '%eax)
-     (emit 'movb '%eax (string-append (->string (- (- string-tag 4))) "(%ecx)"))
+     (emit 'movb '%eax (string-append (->string (- (- string-tag 4))) "(%ecx)")) ; TODO: fix warning for this
      (emit 'movl '%edx '%eax))
     ((string-ref)
      (emit-expr (cadr e) si env) ; string
