@@ -172,7 +172,6 @@
      (emit movl ,(string-append "-" (->string vector-tag) "(%eax)") %eax))
     ((make-string)
      (emit-expr (cadr e) si env)
-     (emit shr ,($ fixnum-shift) %eax) ; no need for type data - we already know it's a uint
      (emit movl %eax "0(%esi)")
      (emit movl %eax %ebx)
      (emit movl %esi %eax)
@@ -182,20 +181,18 @@
      (emit addl %ebx %esi))
     ((string-length)
      (emit-expr (cadr e) si env)
-     (emit movl ,(string-append "-" (->string string-tag) "(%eax)") %eax)
-     (emit shl  ,($ fixnum-shift) %eax)) ; shift back to typed fixnum
+     (emit movl ,(string-append "-" (->string string-tag) "(%eax)") %eax))
     ((string-set!)
      (emit-expr (cadr e) si env)
      (emit movl %eax %ecx) ; string
      (emit movl %eax %edx)
      (emit-expr (caddr e) si env)
      (emit movl %eax %ebx) ; index
-     (emit shr  ,($ fixnum-shift) %ebx)
      (emit-expr (cadddr e) si env) ; char
-     (emit addl %ebx %ecx)
-     (emit shr  ,($ char-shift) %eax)
-     (emit movb %eax ,(string-append "-" (->string (- string-tag 4)) "(%ecx)"))
-     (emit movl %edx %eax)
+     (emit subl %ebx %ecx)
+     (emit movl %eax ,(string-append "-" (->string (+ string-tag -1)) "(%ecx)"))
+     ;(emit movl %edx %eax)
+     (emit movl %ecx %eax)
      )))
 
 (define (emit-expr e si env)

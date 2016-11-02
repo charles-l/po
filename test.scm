@@ -43,6 +43,7 @@
 
 (make-test `(vector-length (make-vector 2))		'eq? 2)
 (make-test `(string-length (make-string 4))		'eq? 4)
+(make-test `(string-set! (make-string 8) 3 #\B)	'eq? '(quote ()))
 (make-test 0			'eq? 0)
 (make-test 3			'eq? 3)
 (make-test -3			'eq? -3)
