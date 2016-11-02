@@ -65,15 +65,13 @@ void print_bits(size_t const size, void const * const ptr)
     unsigned char byte;
     int i, j;
 
-	for (i=size-1;i>=0;i--)
-	{
-		for (j=7;j>=0;j--)
-		{
-			byte = (b[i] >> j) & 1;
-			fprintf(stderr, "%u", byte);
-		}
-	}
-	puts("");
+    for (i=size-1;i>=0;i--) {
+        for (j=7;j>=0;j--) {
+            byte = (b[i] >> j) & 1;
+            fprintf(stderr, "%u", byte);
+        }
+    }
+    puts("");
 }
 
 po_immediate car(po_immediate val) {
@@ -114,7 +112,8 @@ void print_val(po_immediate val) {
     if((val & fixnum_mask) == FIXNUM) {
         printf("%d", val >> fixnum_shift);
     } else if((val & char_mask) == CHAR) {
-        printf("#\\%c", val >> char_shift);
+        printf("0x%x", val >> char_shift);
+        //printf("#\\%c", val >> char_shift);
     } else if((val & boolean_mask) == BOOL) {
         int b = val >> boolean_shift;
         if(b)
@@ -135,11 +134,11 @@ void print_val(po_immediate val) {
             printf("#()");
             printf("\nlen: %i", len(val));
         } else if((val & heap_mask) == STRING) {
-            printf("\"\"");
-            printf("\nlen: %i", len(val));
+            putchar('"');
             for(int i = 0; i < len(val); i++) {
-                printf("\n0x%x", string_ref(val, i));
+                putchar(string_ref(val, i));
             }
+            putchar('"');
         } else if((val & heap_mask) == SYMBOL)
             printf("SYM");
         else if((val & heap_mask) == CLOSURE)

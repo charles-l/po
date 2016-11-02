@@ -173,7 +173,7 @@
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit shr ,($ fixnum-shift) %eax) ; no need for type data - we already know it's a uint
-     (emit movl %eax "0(%esi)")
+     (emit movl %eax "0(%esi)") ; and yes - you can hold up to a 4GB string
      (emit movl %eax %ebx)
      (emit movl %esi %eax)
      (emit orl ,($ string-tag) %eax)
@@ -187,7 +187,7 @@
     ((string-set!)
      (emit-expr (cadr e) si env)
      (emit movl %eax %ecx) ; string
-     (emit movl %eax %edx)
+     (emit movl %eax %edx) ; save original string ptr for later
      (emit-expr (caddr e) si env)
      (emit movl %eax %ebx) ; index
      (emit shr  ,($ fixnum-shift) %ebx)
@@ -195,8 +195,15 @@
      (emit addl %ebx %ecx)
      (emit shr  ,($ char-shift) %eax)
      (emit movb %eax ,(string-append "-" (->string (- string-tag 4)) "(%ecx)"))
-     (emit movl %edx %eax)
-     )))
+     (emit movl %edx %eax))
+    ((string-ref)
+     (emit-expr (cadr e) si env) ; string
+     (emit movl %eax %ecx)
+     (emit-expr (caddr e) si env) ; index
+     (emit shr  ,($ fixnum-tag) %eax)
+     (emit addl %eax %ecx)
+     (emit movl ,(string-append "-" (->string (- string-tag 4)) "(%ecx)") %eax)
+     (emit orl  ,($ char-tag) %eax))))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)

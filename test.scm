@@ -17,8 +17,6 @@
 (system "mkdir -p /tmp/po_tests")
 (system "cp driver.c /tmp/po_tests") ; move driver to working dir
 
-(define failures '()) ; hold test failures in the form ((expr cmp expect-val) . (actual-result assembly-string))
-
 (define-syntax make-test ; TODO: prettify this
   (syntax-rules ()
 		((make-test expr cmp expect-val)
@@ -35,15 +33,13 @@
 		     (if (eval `(,cmp ,expect-val ,r)) ; TODO: use unhygenic macros instead...
 		       (print-success "SUCCESS")
 		       (begin
-			 (set! failures
-			   (append failures
-				   `(((,expr ,cmp ,expect-val) . (,r ,(read-all "/tmp/po_tests/scheme_entry.s"))))))
 			 (print-fail "FAILED")
-			 (exit 1))))))))
+			 (print r " " cmp " " expect-val)
+			 (print (read-all "/tmp/po_tests/scheme_entry.s"))
+			 (exit 1))
+		       ))))))
 
-(make-test `(vector-length (make-vector 2))		'eq? 2)
-(make-test `(string-length (make-string 4))		'eq? 4)
-(make-test `(string-set! (make-string 8) 3 #\B)	'eq? '(quote ()))
+(make-test `(string-ref (string-set! (make-string 1) 0 #\B) 0)	'eq? #\B)
 (make-test 0			'eq? 0)
 (make-test 3			'eq? 3)
 (make-test -3			'eq? -3)
@@ -120,12 +116,6 @@
 		(car b)))		'eq? 3)
 (make-test `(let ((a (cons 1 (cons 2 ,'()))))
 	      (cdr (cdr a)))	'eq? '(quote ()))
-
-(if (null? failures)
-  (print-success "ALL TESTS PASSED")
-  (begin
-    (print-fail "FAILED TESTS")
-    (for-each (lambda (f)
-		(print-fail (string-append (->string (car f)) " but got " (->string (cadr f))))
-		(print (caddr f)))
-	      failures)))
+(make-test `(vector-length (make-vector 2))		'eq? 2)
+(make-test `(string-length (make-string 4))		'eq? 4)
+(make-test `(string-set! (make-string 1) 0 #\B)	'equal? "B")
