@@ -39,7 +39,6 @@
 			 (exit 1))
 		       ))))))
 
-(make-test `(string-ref (string-set! (make-string 1) 0 #\B) 0)	'eq? #\B)
 (make-test 0			'eq? 0)
 (make-test 3			'eq? 3)
 (make-test -3			'eq? -3)
@@ -119,3 +118,5 @@
 (make-test `(vector-length (make-vector 2))		'eq? 2)
 (make-test `(string-length (make-string 4))		'eq? 4)
 (make-test `(string-set! (make-string 1) 0 #\B)	'equal? "B")
+(make-test `(string-ref (string-set! (make-string 5) 4 #\A) 4)	'eq? #\A)
+(make-test `(string-ref (string-set! (make-string 1) 0 #\B) 0)	'eq? #\B)

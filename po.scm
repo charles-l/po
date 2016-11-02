@@ -200,9 +200,9 @@
      (emit-expr (cadr e) si env) ; string
      (emit movl %eax %ecx)
      (emit-expr (caddr e) si env) ; index
-     (emit shr  ,($ fixnum-tag) %eax)
+     (emit shr  ,($ fixnum-shift) %eax)
      (emit addl %eax %ecx)
-     (emit movl ,(string-append "-" (->string (- string-tag 4)) "(%ecx)") %eax)
+     (emit movb ,(string-append "-" (->string (- string-tag 4)) "(%ecx)") %ah)
      (emit orl  ,($ char-tag) %eax))))
 
 (define (emit-expr e si env)

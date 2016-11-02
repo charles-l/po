@@ -112,8 +112,7 @@ void print_val(po_immediate val) {
     if((val & fixnum_mask) == FIXNUM) {
         printf("%d", val >> fixnum_shift);
     } else if((val & char_mask) == CHAR) {
-        printf("0x%x", val >> char_shift);
-        //printf("#\\%c", val >> char_shift);
+        printf("#\\%c", val >> char_shift);
     } else if((val & boolean_mask) == BOOL) {
         int b = val >> boolean_shift;
         if(b)
