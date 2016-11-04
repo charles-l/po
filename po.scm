@@ -44,7 +44,7 @@
   (symbol-append e ':))
 
 (define (emit . args)
-  (set! asm-list (append asm-list `(,args))))
+  (set! asm-ast (append asm-ast `(,args))))
 
 (define (emit-immediate e)
   (emit 'movl (immediate-rep e) '%eax))
@@ -181,7 +181,7 @@
      (emit-expr (cadddr e) si env) ; char
      (emit 'addl '%ebx '%ecx)
      (emit 'shr  ($ char-shift) '%eax)
-     (emit 'movb '%eax (string-append (->string (- (- string-tag 4))) "(%ecx)")) ; TODO: fix warning for this
+     (emit 'movb '%al (string-append (->string (- (- string-tag 4))) "(%ecx)")) ; TODO: fix warning for this
      (emit 'movl '%edx '%eax))
     ((string-ref)
      (emit-expr (cadr e) si env) ; string
@@ -257,9 +257,9 @@
       ((null? p)    ; lower 8 bits are 00101111
        null-tag))))
 
-(define asm-list)
+(define asm-ast)
 (define (compile-program p)
-  (fluid-let ((asm-list '()))
+  (fluid-let ((asm-ast '()))
 	     (emit '.globl 'scheme_entry) ; boilerplate
 	     (emit '.code32) ; currently only supporting x86 asm
 	     (emit '.type 'scheme_entry '@function)
@@ -267,4 +267,4 @@
 	     (emit 'movl "4(%esp)" '%esi) ; mov heap pointer to esi
 	     (emit-expr p stack-start (make-env))
 	     (emit 'ret)
-	     asm-list))
+	     asm-ast))
