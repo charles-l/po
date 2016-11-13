@@ -1,6 +1,7 @@
+* currying
+* gc
 * bootstrap
 * profiler
-* emit lists rather than strings so optimization is easy
 * port to ARM
 * stdlib
 * unicode support

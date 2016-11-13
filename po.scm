@@ -34,8 +34,15 @@
 
 ;;; emit dsl
 
+(define-syntax with-asm-to-list
+  (syntax-rules ()
+    ((with-asm-to-list body ...)
+     (fluid-let ((main-asm '()))
+		body ...
+		main-asm))))
+
 (define (uniq-label s)
-  (gensym s))
+    (gensym s))
 
 (define ($ v) ; stick a "$" at the start of an immediate asm value
   (symbol-append '$ (string->symbol (->string v))))
@@ -44,7 +51,7 @@
   (symbol-append e ':))
 
 (define (emit . args)
-  (set! asm-ast (append asm-ast `(,args))))
+  (set! main-asm (append main-asm `(,args))))
 
 (define (emit-immediate e)
   (emit 'movl (immediate-rep e) '%eax))
@@ -76,7 +83,30 @@
 (define (emit-mask-data mask) ; leave just the type behind for type checks
   (emit 'andl mask '%eax))
 
-(define (emit-primative e si env)
+(define (emit-function-header name)
+  (emit '.text)
+  (emit '.global name)
+  (emit '.type name '@function)
+  (emit (label name)))
+
+(define (emit-lambda fmls body si env)
+  (let ((lambda-id (uniq-label 'L)))
+    (set! main-asm
+      (append (with-asm-to-list
+		(emit-function-header lambda-id)
+		(let f ((fmls fmls) (si (- word-size)) (env env))
+		  (cond
+		    ((null? fmls)
+		     (emit-expr (car body) si env)) ; shouldn't car body
+		    (else
+		      (f (cdr fmls)
+			 (- si word-size)
+			 (push-var (car fmls) si env)))))
+		(emit 'ret))
+	      main-asm))
+    lambda-id))
+
+(define (emit-primcall e si env)
   (case (car e)
     ((add1)
      (emit-expr (cadr e) si env)
@@ -129,13 +159,10 @@
     ((cons)
      (emit-expr (cadr e) si env) ; compile sub exprs first
      (emit-push-to-stack si) ; and push scratch to stack
-
      (emit-expr (caddr e) (- si word-size) env)
      (emit 'movl '%eax "4(%esi)") ; second word of esi
-
      (emit 'movl (stack-pos si) '%eax) ; move from stack to
      (emit 'movl '%eax "0(%esi)") ; first word of esi
-
      (emit 'movl '%esi '%eax)
      (emit 'orl  ($ pair-tag) '%eax) ; mark as pair
      (emit 'addl ($ double-word) '%esi)) ; bump esi forward
@@ -190,7 +217,16 @@
      (emit 'shr  ($ fixnum-shift) '%eax)
      (emit 'addl '%eax '%ecx)
      (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
-     (emit 'orl  ($ char-tag) '%eax))))
+     (emit 'orl  ($ char-tag) '%eax))
+    ((lambda)
+     (emit-lambda
+       (cadr e)
+       (caddr e)
+       si env))
+    (else #f)))
+
+(define (emit-labelcall l si env) ; TODO: implement
+  (emit 'call l))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -202,10 +238,17 @@
 	     (error "undefined binding" e))))
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
-	((primcall? e)
-	 (emit-primative e si env))
-	(else
-	  (error "can't generate for expression " e))))
+	((funcall? e)
+	 (unless
+	   (unless
+	     (emit-primcall e si env)
+	     (emit-labelcall
+	       (emit-lambda ; hacky mchackface
+		 (cadr (car e))
+		 (cddr (car e)) si env)
+	       si env))))
+	(else ; shouldn't be reached
+	  (error "invalid expression " e))))
 
 (define (emit-let bindings body si env)
   (let f ((b* bindings) (new-env env) (si si))
@@ -221,7 +264,17 @@
 
 ;;;
 
-(define (make-env) '())
+(define (ensure-variable f)
+  (if (symbol? f)
+    f
+    (error "~a is not a symbol!" f)))
+
+(define (lhs binding)
+  (ensure-variable (car binding)))
+
+(define rhs cadr)
+
+(define (make-env bindings) bindings)
 
 (define (lookup var env) ; returns the stack offset of a variable in env
   (cadr (or (assoc var env) '(#f #f))))
@@ -239,8 +292,8 @@
 (define (variable? v)
   (symbol? v))
 
-(define (primcall? e) ; a built in function call
-  (> (length e) 1))
+(define (funcall? e) ; a function call
+  (>= (length e) 1))
 
 (define (let? e) ; TODO: add more syntax check here
   (eq? 'let (car e)))
@@ -257,14 +310,10 @@
       ((null? p)    ; lower 8 bits are 00101111
        null-tag))))
 
-(define asm-ast)
-(define (compile-program p)
-  (fluid-let ((asm-ast '()))
-	     (emit '.globl 'scheme_entry) ; boilerplate
-	     (emit '.code32) ; currently only supporting x86 asm
-	     (emit '.type 'scheme_entry '@function)
-	     (emit (label 'scheme_entry))
-	     (emit 'movl "4(%esp)" '%esi) ; mov heap pointer to esi
-	     (emit-expr p stack-start (make-env))
-	     (emit 'ret)
-	     asm-ast))
+(define main-asm) ; push all the assembly into here
+(define (compile-program prog)
+  (with-asm-to-list
+    (emit-function-header 'scheme_entry)
+    (emit 'movl "4(%esp)" '%esi) ; mov heap pointer to esi
+    (emit-expr prog stack-start (make-env '()))
+    (emit 'ret)))
