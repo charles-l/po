@@ -218,15 +218,19 @@
      (emit 'addl '%eax '%ecx)
      (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
      (emit 'orl  ($ char-tag) '%eax))
-    ((lambda)
-     (emit-lambda
-       (cadr e)
-       (caddr e)
-       si env))
+    ;((lambda)
+    ; (emit-lambda
+    ;   (cadr e)
+    ;   (caddr e)
+    ;   si env))
     (else #f)))
 
-(define (emit-labelcall l si env) ; TODO: implement
-  (emit 'call l))
+(define (emit-labelcall e si env) ; TODO: implement
+  (let ((l (emit-lambda ; hacky mchackface (this needs to check if its an inline lambda doi)
+	     (cadr (car e))
+	     (cddr (car e)) si env)))
+    (emit-push-all-to-stack (cdr e) (- si word-size) env)
+    (emit 'call l)))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -242,11 +246,7 @@
 	 (unless
 	   (unless
 	     (emit-primcall e si env)
-	     (emit-labelcall
-	       (emit-lambda ; hacky mchackface
-		 (cadr (car e))
-		 (cddr (car e)) si env)
-	       si env))))
+	     (emit-labelcall e si env))))
 	(else ; shouldn't be reached
 	  (error "invalid expression " e))))
 
