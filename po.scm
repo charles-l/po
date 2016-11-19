@@ -68,14 +68,15 @@
     (begin
       (emit-expr (car l) si env)
       (emit-push-to-stack si)
-      (emit-push-all-to-stack (cdr l) (- si word-size) env))))
+      (emit-push-all-to-stack (cdr l) (- si word-size) env))
+    (+ si word-size))) ; return ending stack pos
 
-(define (emit-apply-stack op si) ; apply an operator to a stack
-  (if (>= si (- word-size))
-    (emit 'movl (stack-pos si) '%eax)
+(define (emit-apply-stack op si-start n) ; apply an operator to a stack
+  (if (= n 1)
+    (emit 'movl (stack-pos si-start) '%eax)
     (begin
-      (emit-apply-stack op (+ si word-size))
-      (emit op (stack-pos si) '%eax))))
+      (emit-apply-stack op (+ si-start word-size) (sub1 n))
+      (emit op (stack-pos si-start) '%eax))))
 
 (define (emit-push-to-stack si)
   (emit 'movl '%eax (stack-pos si)))
@@ -141,11 +142,13 @@
      (emit-expr (caddr e) si env)
      (emit-cmp-eax "%ebx"))
     ((+)
-     (emit-push-all-to-stack (cdr e) si env)
-     (emit-apply-stack "addl" (- (* word-size (length (cdr e))))))
+     (emit-apply-stack 'addl
+		       (emit-push-all-to-stack (cdr e) si env)
+		       (length (cdr e))))
     ((-)
-     (emit-push-all-to-stack (cdr e) si env)
-     (emit-apply-stack "subl" (- (* word-size (length (cdr e))))))
+     (emit-apply-stack 'subl
+		       (emit-push-all-to-stack (cdr e) si env)
+		       (length (cdr e))))
     ((if)
      (let ((L0 (uniq-label 'if)) (L1 (uniq-label 'else)))
        (emit-expr (cadr e) si env)
@@ -228,9 +231,14 @@
 (define (emit-labelcall e si env) ; TODO: implement
   (let ((l (emit-lambda ; hacky mchackface (this needs to check if its an inline lambda doi)
 	     (cadr (car e))
-	     (cddr (car e)) si env)))
+	     (cddr (car e))
+	     si (make-env '()))))
     (emit-push-all-to-stack (cdr e) (- si word-size) env)
-    (emit 'call l)))
+    (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
+	  '%esp)
+    (emit 'call l)
+    (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
+	  '%esp)))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
