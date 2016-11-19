@@ -221,6 +221,14 @@
      (emit 'addl '%eax '%ecx)
      (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
      (emit 'orl  ($ char-tag) '%eax))
+    ((labels)
+     (let* ((bindings (cadr e))
+	    (env (push-var (caar bindings)
+		       (emit-lambda (cadr (cadar bindings))
+				    (cddr (cadar bindings))
+				    si (make-env '()))
+		       env)))
+       (emit-expr (caddr e) si env)))
     ;((lambda)
     ; (emit-lambda
     ;   (cadr e)
@@ -229,16 +237,12 @@
     (else #f)))
 
 (define (emit-labelcall e si env) ; TODO: implement
-  (let ((l (emit-lambda ; hacky mchackface (this needs to check if its an inline lambda doi)
-	     (cadr (car e))
-	     (cddr (car e))
-	     si (make-env '()))))
-    (emit-push-all-to-stack (cdr e) (- si word-size) env)
-    (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
-	  '%esp)
-    (emit 'call l)
-    (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
-	  '%esp)))
+  (emit-push-all-to-stack (cdr e) (- si word-size) env)
+  (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
+	'%esp)
+  (emit 'call (lookup (car e) env))
+  (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
+	'%esp))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -252,9 +256,8 @@
 	 (emit-let (cadr e) (caddr e) si env))
 	((funcall? e)
 	 (unless
-	   (unless
-	     (emit-primcall e si env)
-	     (emit-labelcall e si env))))
+	   (emit-primcall e si env)
+	   (emit-labelcall e si env)))
 	(else ; shouldn't be reached
 	  (error "invalid expression " e))))
 

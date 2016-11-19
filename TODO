@@ -1,7 +1,11 @@
+* cleanup
 * currying
 * gc
 * bootstrap
 * profiler
+* OPTIMIZE THE CRAP OUTTA EVERYTHING
 * port to ARM
-* stdlib
+* number tower
+* floating point
 * unicode support
+* stdlib
