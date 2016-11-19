@@ -41,7 +41,8 @@
 		   expr))))
 
 (define (expect-true expr con . msg)
-  (if (not con)
+  (if con
+    con
     (error (string-append (->string expr) ": " (string-join (map ->string msg) " ")))))
 
 ;;; emit dsl
@@ -234,13 +235,16 @@
      (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
      (emit 'orl  ($ char-tag) '%eax))
     ((labels)
-     (let* ((bindings (cadr e))
-	    (env (push-var (caar bindings)
-		       (emit-lambda (cadr (cadar bindings))
-				    (cddr (cadar bindings))
-				    si (make-env '()))
-		       env)))
-       (emit-expr (caddr e) si env)))
+     (emit-expr (caddr e)
+		si
+		(let l ((bindings (cadr e)) (env (make-env '())))
+		  (if (null? bindings)
+		    env
+		    (l (cdr bindings) (push-var (caar bindings)
+						(emit-lambda (cadr (cadar bindings))
+							     (cddr (cadar bindings))
+							     si (make-env '()))
+						env))))))
     ;((lambda)
     ; (emit-lambda
     ;   (cadr e)
@@ -252,7 +256,7 @@
   (emit-push-all-to-stack (cdr e) (- si word-size) env)
   (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
 	'%esp)
-  (emit 'call (lookup (car e) env))
+  (emit 'call (expect-true e (lookup (car e) env) "can't find function " (car e)))
   (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
 	'%esp))
 

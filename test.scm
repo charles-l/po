@@ -167,3 +167,5 @@
 			   (let ((k (+ x 1)))
 			     (+ k (- z 3))))))
 	      (a 5 2 7))) 		'eq? 10)
+(run-test '(labels ((a (lambda () 123)) (b (lambda (x) (- 3 x))))
+	     (b (a)))			'eq? -120)
