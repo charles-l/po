@@ -1,4 +1,4 @@
-(use format srfi-1)
+(use format srfi-1 srfi-13)
 
 (define word-size 4)
 (define double-word (* 2 word-size))
@@ -32,14 +32,26 @@
 (define symbol-tag 5)
 (define closure-tag 6)
 
+; compile time syntax checking
+(define-syntax expect
+  (syntax-rules ()
+		((expect expr str)
+		 (handle-exceptions exn
+		   (error (string-append "expected " str))
+		   expr))))
+
+(define (expect-true expr con . msg)
+  (if (not con)
+    (error (string-append (->string expr) ": " (string-join (map ->string msg) " ")))))
+
 ;;; emit dsl
 
 (define-syntax with-asm-to-list
   (syntax-rules ()
-    ((with-asm-to-list body ...)
-     (fluid-let ((main-asm '()))
-		body ...
-		main-asm))))
+		((with-asm-to-list body ...)
+		 (fluid-let ((main-asm '()))
+			    body ...
+			    main-asm))))
 
 (define (uniq-label s)
     (gensym s))
@@ -274,16 +286,6 @@
 	     (- si word-size)))))))
 
 ;;;
-
-(define (ensure-variable f)
-  (if (symbol? f)
-    f
-    (error "~a is not a symbol!" f)))
-
-(define (lhs binding)
-  (ensure-variable (car binding)))
-
-(define rhs cadr)
 
 (define (make-env bindings) bindings)
 
