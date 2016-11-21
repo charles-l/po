@@ -1,4 +1,4 @@
-(use format srfi-1 srfi-13)
+(use srfi-1 srfi-13)
 
 (define word-size 4)
 (define double-word (* 2 word-size))
