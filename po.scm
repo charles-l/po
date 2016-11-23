@@ -76,6 +76,15 @@
   (emit 'cmovzl '%edx '%ecx)
   (emit 'movl '%ecx '%eax)) ; move the result to %eax
 
+(define (emit-new-heap-val size tag)
+  (emit 'movl size "0(%esi)")
+  (emit 'movl '%eax  '%ebx) ; back up register
+  (emit 'movl '%esi  '%eax)
+  (emit 'orl  tag    '%eax)
+  (emit 'addl ($ 11) '%ebx)
+  (emit 'andl ($ -8) '%ebx)
+  (emit 'addl '%ebx  '%esi))
+
 (define (emit-push-all-to-stack l si env) ; push a list to the stack
   (if (not (null? l))
     (begin
@@ -188,28 +197,21 @@
     ((cdr) ; TODO: check that type is a pair
      (emit-expr (cadr e) si env)
      (emit 'movl "3(%eax)" '%eax))
-    ((make-vector) ; TODO: add vector-set and vector-ref
+    ((make-vector) ; TODO: add vector-set and vector-ref and type check
      (emit-expr (cadr e) si env)
-     (emit 'movl '%eax "0(%esi)") ; maybe shift 2 right (no real need for immediate)?
-     (emit 'movl '%eax '%ebx)
-     (emit 'movl '%esi '%eax)
-     (emit 'orl ($ vector-tag) '%eax)
-     (emit 'addl ($ 11) '%ebx)
-     (emit 'andl ($ -8) '%ebx) ; clear out the lower 3 bits
-     (emit 'addl '%ebx '%esi))
+     (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
+     (emit 'imul ($ word-size) '%eax) ; each element is sizeof(word)
+     (emit-new-heap-val '%eax ($ vector-tag)))
     ((vector-length)
      (emit-expr (cadr e) si env)
-     (emit 'movl (string-append (->string (- vector-tag)) "(%eax)") '%eax))
+     (emit 'movl (string-append (->string (- vector-tag)) "(%eax)") '%eax)
+     (emit 'shl ($ fixnum-shift) '%eax)
+     (emit 'movl ($ word-size) '%ecx) ; each element is sizeof(word)
+     (emit 'idiv '%ecx))
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit 'movl '%eax "0(%esi)") ; and yes - you can hold up to a 4GB string
-     (emit 'movl '%eax '%ebx)
-     (emit 'movl '%esi '%eax)
-     (emit 'orl ($ string-tag) '%eax)
-     (emit 'addl ($ 11) '%ebx)
-     (emit 'andl ($ -8) '%ebx) ; clear out the lower 3 bits
-     (emit 'addl '%ebx '%esi))
+     (emit-new-heap-val '%eax ($ string-tag)))
     ((string-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
@@ -245,6 +247,9 @@
 							     (cddr (cadar bindings))
 							     si (make-env '()))
 						env))))))
+    ((closure)
+     (let ((l (emit-code '() '() si (make-env))))
+       (emit 'movl (stack-pos 0) "0(%esi)")))
     (else #f)))
 
 (define (emit-labelcall e si env) ; TODO: implement
