@@ -103,11 +103,11 @@
   (emit '.type name '@function)
   (emit (label name)))
 
-(define (emit-lambda fmls body si env)
-  (let ((lambda-id (uniq-label 'L)))
+(define (emit-code fmls body si env)
+  (let ((code-id (uniq-label 'L)))
     (set! main-asm
       (append (with-asm-to-list
-		(emit-function-header lambda-id)
+		(emit-function-header code-id)
 		(let f ((fmls fmls) (si (- word-size)) (env env))
 		  (cond
 		    ((null? fmls)
@@ -118,7 +118,7 @@
 			 (push-var (car fmls) si env)))))
 		(emit 'ret))
 	      main-asm))
-    lambda-id))
+    code-id))
 
 (define (emit-primcall e si env)
   (case (car e)
@@ -241,15 +241,10 @@
 		  (if (null? bindings)
 		    env
 		    (l (cdr bindings) (push-var (caar bindings)
-						(emit-lambda (cadr (cadar bindings))
+						(emit-code (cadr (cadar bindings))
 							     (cddr (cadar bindings))
 							     si (make-env '()))
 						env))))))
-    ;((lambda)
-    ; (emit-lambda
-    ;   (cadr e)
-    ;   (caddr e)
-    ;   si env))
     (else #f)))
 
 (define (emit-labelcall e si env) ; TODO: implement
@@ -271,9 +266,9 @@
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
 	((funcall? e)
-	 (unless
-	   (emit-primcall e si env)
-	   (emit-labelcall e si env)))
+	 (if (eq? 'labelcall (car e))
+	   (emit-labelcall (cdr e) si env)
+	   (emit-primcall e si env)))
 	(else ; shouldn't be reached
 	  (error "invalid expression " e))))
 
