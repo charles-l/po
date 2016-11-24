@@ -141,7 +141,7 @@ void print_val(po_immediate val) {
         } else if((val & heap_mask) == SYMBOL)
             printf("SYM");
         else if((val & heap_mask) == CLOSURE)
-            printf("#<procedure %p>", val >> heap_shift);
+            printf("#<procedure %p>", (void *) (val >> heap_shift));
         else {
             val &= heap_mask;
             print_bits(sizeof(val), &val);
