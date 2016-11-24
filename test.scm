@@ -43,6 +43,7 @@
 	 (print (read-all "/tmp/po_tests/scheme_entry.s"))
 	 (exit 1))))))
 
+(run-test '(closure a)		'eq? 0)
 (run-test 0			'eq? 0)
 (run-test 3			'eq? 3)
 (run-test -3			'eq? -3)

@@ -76,12 +76,12 @@
   (emit 'cmovzl '%edx '%ecx)
   (emit 'movl '%ecx '%eax)) ; move the result to %eax
 
-(define (emit-new-heap-val size tag)
-  (emit 'movl size "0(%esi)")
+(define (emit-new-heap-val size tag off)
+  (emit 'movl size   (string-append (->string off) "(%esi)"))
   (emit 'movl '%eax  '%ebx) ; back up register
   (emit 'movl '%esi  '%eax)
   (emit 'orl  tag    '%eax)
-  (emit 'addl ($ 11) '%ebx)
+  (emit 'addl ($ (+ 11 off)) '%ebx)
   (emit 'andl ($ -8) '%ebx)
   (emit 'addl '%ebx  '%esi))
 
@@ -120,7 +120,7 @@
 		(let f ((fmls fmls) (si (- word-size)) (env env))
 		  (cond
 		    ((null? fmls)
-		     (emit-expr (car body) si env)) ; shouldn't car body
+		     (map (cut emit-expr <> si env) body))
 		    (else
 		      (f (cdr fmls)
 			 (- si word-size)
@@ -201,7 +201,7 @@
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
      (emit 'imul ($ word-size) '%eax) ; each element is sizeof(word)
-     (emit-new-heap-val '%eax ($ vector-tag)))
+     (emit-new-heap-val '%eax ($ vector-tag)) 0)
     ((vector-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (string-append (->string (- vector-tag)) "(%eax)") '%eax)
@@ -211,7 +211,7 @@
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit-new-heap-val '%eax ($ string-tag)))
+     (emit-new-heap-val '%eax ($ string-tag)) 0)
     ((string-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
@@ -248,8 +248,10 @@
 							     si (make-env '()))
 						env))))))
     ((closure)
-     (let ((l (emit-code '() '() si (make-env))))
-       (emit 'movl (stack-pos 0) "0(%esi)")))
+     (let ((l (emit-code '() '() si (make-env '()))))
+       (emit 'movl ($ l) "0(%esi)")
+       (set! env (push-var (cadr e) l env))
+       (emit-new-heap-val '%eax ($ closure-tag) word-size)))
     (else #f)))
 
 (define (emit-labelcall e si env) ; TODO: implement
