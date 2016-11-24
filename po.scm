@@ -76,12 +76,14 @@
   (emit 'cmovzl '%edx '%ecx)
   (emit 'movl '%ecx '%eax)) ; move the result to %eax
 
-(define (emit-new-heap-val size tag off)
-  (emit 'movl size   (string-append (->string off) "(%esi)"))
+(define (emit-new-heap-val size tag initials)
+  (mapi (lambda (e i)
+	  (emit 'movl e (conc (* i word-size) "(%esi)")))
+	initials)
   (emit 'movl '%eax  '%ebx) ; back up register
   (emit 'movl '%esi  '%eax)
   (emit 'orl  tag    '%eax)
-  (emit 'addl ($ (+ 11 off)) '%ebx)
+  (emit 'addl ($ 11) '%ebx)
   (emit 'andl ($ -8) '%ebx)
   (emit 'addl '%ebx  '%esi))
 
@@ -201,17 +203,14 @@
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
      (emit 'imul ($ word-size) '%eax) ; each element is sizeof(word)
-     (emit-new-heap-val '%eax ($ vector-tag)) 0)
+     (emit-new-heap-val '%eax ($ vector-tag) '(%eax)))
     ((vector-length)
      (emit-expr (cadr e) si env)
-     (emit 'movl (string-append (->string (- vector-tag)) "(%eax)") '%eax)
-     (emit 'shl ($ fixnum-shift) '%eax)
-     (emit 'movl ($ word-size) '%ecx) ; each element is sizeof(word)
-     (emit 'idiv '%ecx))
+     (emit 'movl (conc (- vector-tag) "(%eax)") '%eax))
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit-new-heap-val '%eax ($ string-tag)) 0)
+     (emit-new-heap-val '%eax ($ string-tag) '(%eax)))
     ((string-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
@@ -249,9 +248,11 @@
 						env))))))
     ((closure)
      (let ((l (emit-code '() '() si (make-env '()))))
-       (emit 'movl ($ l) "0(%esi)")
        (set! env (push-var (cadr e) l env))
-       (emit-new-heap-val '%eax ($ closure-tag) word-size)))
+       (emit-new-heap-val
+	 (* word-size (length (cdr e)))
+	 ($ closure-tag)
+	 `(,($ l)))))
     (else #f)))
 
 (define (emit-labelcall e si env) ; TODO: implement
@@ -292,6 +293,13 @@
 	     (- si word-size)))))))
 
 ;;;
+
+(define (mapi f l)
+  (let r ((i 0) (l l)) (cond
+     ((null? l) '())
+     (else
+       (cons (f (car l) i)
+	     (r (+ 1 i) (cdr l)))))))
 
 (define (make-env bindings) bindings)
 
