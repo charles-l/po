@@ -60,6 +60,9 @@
 (define ($ v) ; stick a "$" at the start of an immediate asm value
   (symbol-append '$ (string->symbol (->string v))))
 
+(define (deref v)
+  (symbol-append '\( v '\)))
+
 (define (label e)
   (symbol-append e ':))
 
@@ -111,9 +114,10 @@
   (emit '.text)
   (emit '.global name)
   (emit '.type name '@function)
+  (emit '.align 8)
   (emit (label name)))
 
-(define (emit-code fmls body si env)
+(define (emit-code fmls frees body si env)
   (let ((code-id (uniq-label 'L)))
     (set! main-asm
       (append (with-asm-to-list
@@ -242,25 +246,32 @@
 		(let l ((bindings (cadr e)) (env (make-env '())))
 		  (if (null? bindings)
 		    env
-		    (l (cdr bindings) (push-var (caar bindings)
-						(emit-code (cadr (cadar bindings))
-							     (cddr (cadar bindings))
-							     si (make-env '()))
-						env))))))
+		    (l (cdr bindings)
+		       (push-var (caar bindings)
+				 (emit-code
+				   (cadr (cadar bindings))
+				   (caddr (cadar bindings))
+				   (cdddr (cadar bindings))
+				   si env) ; TODO: fix the env here (i.e. remove other locals)
+				 env))))))
     ((closure)
-     (let ((l (emit-code '() '() si (make-env '()))))
-       (set! env (push-var (cadr e) l env))
-       (emit-new-heap-val
-	 ($ (* word-size (length (cdr e))))
-	 ($ closure-tag)
-	 `(,($ l)))))
+     (emit-new-heap-val
+       ($ (* word-size (length (cdr e))))
+       ($ closure-tag)
+       `(,($ (expect-true (cadr e) (lookup (cadr e) env) "function not found")))))
     (else #f)))
 
-(define (emit-labelcall e si env) ; TODO: implement
-  (emit-push-all-to-stack (cdr e) (- si word-size) env)
+(define (emit-funcall e si env)
+  (emit-push-all-to-stack (cdr e) (- si word-size) env) ; save the args
+  (emit-expr (car e) si env)
+  (emit 'movl '%eax '%ebx) ; TODO: FIXME: BUG: ebx *will* get clobbered eventually (clean up register use)
+  (emit 'movl '%ebx '%eax)
+  ; TODO:
+  ;(emit 'subl ($ closure-tag) '%eax)
+  ;(emit 'movl (deref '%eax) '%eax)
   (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
 	'%esp)
-  (emit 'call (expect-true e (lookup (car e) env) "can't find function " (car e)))
+  (emit 'call '*%eax)
   (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
 	'%esp))
 
@@ -275,8 +286,8 @@
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
 	((funcall? e)
-	 (if (eq? 'labelcall (car e))
-	   (emit-labelcall (cdr e) si env)
+	 (if (eq? 'funcall (car e))
+	   (emit-funcall (cdr e) si env)
 	   (emit-primcall e si env)))
 	(else ; shouldn't be reached
 	  (error "invalid expression " e))))
@@ -311,8 +322,11 @@
   `((,var ,si) . ,env))
 
 (define (stack-pos si)
-  (if (zero? si) (error "0(%esp) can't be set"))
-  (string-append (->string si) "(%esp)"))
+  (cond
+    ((symbol? si) (symbol-append '$ si)) ; label
+    ((zero? si) (error "0(%esp) can't be set"))
+    (else
+      (conc si "(%esp)"))))
 
 (define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
