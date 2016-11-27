@@ -80,12 +80,11 @@
   (mapi (lambda (e i)
 	  (emit 'movl e (conc (* i word-size) "(%esi)")))
 	initials)
-  (emit 'movl '%eax  '%ebx) ; back up register
   (emit 'movl '%esi  '%eax)
   (emit 'orl  tag    '%eax)
-  (emit 'addl ($ 11) '%ebx)
-  (emit 'andl ($ -8) '%ebx)
-  (emit 'addl '%ebx  '%esi))
+  (emit 'addl size   '%esi) ; advance %esi
+  (emit 'addl ($ 11) '%esi) ; and align it on 8 bytes
+  (emit 'andl ($ -8) '%esi))
 
 (define (emit-push-all-to-stack l si env) ; push a list to the stack
   (if (not (null? l))
@@ -203,14 +202,16 @@
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
      (emit 'imul ($ word-size) '%eax) ; each element is sizeof(word)
-     (emit-new-heap-val '%eax ($ vector-tag) '(%eax)))
+     (emit 'movl '%eax '%ebx) ; backup %eax
+     (emit-new-heap-val '%ebx ($ vector-tag) '(%ebx)))
     ((vector-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (conc (- vector-tag) "(%eax)") '%eax))
     ((make-string)
      (emit-expr (cadr e) si env)
      (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit-new-heap-val '%eax ($ string-tag) '(%eax)))
+     (emit 'movl '%eax '%ebx) ; backup %eax
+     (emit-new-heap-val '%ebx ($ string-tag) '(%ebx)))
     ((string-length)
      (emit-expr (cadr e) si env)
      (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
@@ -250,7 +251,7 @@
      (let ((l (emit-code '() '() si (make-env '()))))
        (set! env (push-var (cadr e) l env))
        (emit-new-heap-val
-	 (* word-size (length (cdr e)))
+	 ($ (* word-size (length (cdr e))))
 	 ($ closure-tag)
 	 `(,($ l)))))
     (else #f)))

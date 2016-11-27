@@ -1,3 +1,4 @@
+* write an assembler using delayed evaluation
 * cleanup
 * currying
 * gc
