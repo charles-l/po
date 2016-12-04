@@ -32,6 +32,10 @@
 (define symbol-tag 5)
 (define closure-tag 6)
 
+(define %immed '%eax) ; immediate register
+(define %stack '%esp) ; stack pointer
+(define %heap  '%esi) ; heap pointer
+
 ; compile time syntax checking
 (define-syntax expect
   (syntax-rules ()
@@ -69,25 +73,31 @@
 (define (emit . args)
   (set! main-asm (append main-asm `(,args))))
 
+; (emit* ('a 'b 'c) ('d e f)) eq to (emit 'a 'b 'c) (emit 'd e f)
+(define-syntax emit*
+  (lambda (exp rename compare)
+    (append `(begin)
+	    (map (lambda (x) (cons 'emit x)) (cdr exp)))))
+
 (define (emit-immediate e)
-  (emit 'movl (immediate-rep e) '%eax))
+  (emit 'movl (immediate-rep e) %immed))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
-  (emit 'movl (immediate-rep #f) '%ecx) ; move #t and #f into registers
-  (emit 'movl (immediate-rep #t) '%edx)
-  (emit 'cmpl val '%eax)
-  (emit 'cmovzl '%edx '%ecx)
-  (emit 'movl '%ecx '%eax)) ; move the result to %eax
+  (emit* ('movl (immediate-rep #f) '%ecx) ; move #t and #f into registers
+	 ('movl (immediate-rep #t) '%edx)
+	 ('cmpl val %immed)
+	 ('cmovzl '%edx '%ecx)
+	 ('movl '%ecx %immed))) ; move the result to %eax
 
 (define (emit-new-heap-val size tag initials)
   (mapi (lambda (e i)
 	  (emit 'movl e (conc (* i word-size) "(%esi)")))
 	initials)
-  (emit 'movl '%esi  '%eax)
-  (emit 'orl  tag    '%eax)
-  (emit 'addl size   '%esi) ; advance %esi
-  (emit 'addl ($ 11) '%esi) ; and align it on 8 bytes
-  (emit 'andl ($ -8) '%esi))
+  (emit* ('movl %heap  %immed)
+	 ('orl  tag    %immed)
+	 ('addl size   %heap) ; advance %esi
+	 ('addl ($ 11) %heap) ; and align it on 8 bytes
+	 ('andl ($ -8) %heap)))
 
 (define (emit-push-all-to-stack l si env) ; push a list to the stack
   (if (not (null? l))
@@ -99,23 +109,23 @@
 
 (define (emit-apply-stack op si-start n) ; apply an operator to a stack
   (if (= n 1)
-    (emit 'movl (stack-pos si-start) '%eax)
+    (emit 'movl (stack-pos si-start) %immed)
     (begin
       (emit-apply-stack op (+ si-start word-size) (sub1 n))
-      (emit op (stack-pos si-start) '%eax))))
+      (emit op (stack-pos si-start) %immed))))
 
 (define (emit-push-to-stack si)
-  (emit 'movl '%eax (stack-pos si)))
+  (emit 'movl %immed (stack-pos si)))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
-  (emit 'andl mask '%eax))
+  (emit 'andl mask %immed))
 
 (define (emit-function-header name)
-  (emit '.text)
-  (emit '.global name)
-  (emit '.type name '@function)
-  (emit '.align 8)
-  (emit (label name)))
+  (emit* ('.text)
+	 ('.global name)
+	 ('.type name '@function)
+	 ('.align 8)
+	 ((label name))))
 
 (define (emit-code fmls frees body si env)
   (let ((code-id (uniq-label 'L)))
@@ -134,38 +144,52 @@
 	      main-asm))
     code-id))
 
+; assumes e, si, and env are bound
+
 (define (emit-primcall e si env)
+  (define (emit-arg-expr n)
+    (emit-expr (list-ref e n) si env))
   (case (car e)
     ((add1)
-     (emit-expr (cadr e) si env)
-     (emit 'addl (immediate-rep 1) '%eax))
+     (emit-arg-expr 1)
+     (emit 'addl (immediate-rep 1) %immed))
     ((sub1)
-     (emit-expr (cadr e) si env)
-     (emit 'subl (immediate-rep 1) '%eax))
+     (emit-arg-expr 1)
+     (emit 'subl (immediate-rep 1) %immed))
     ((integer->char)
-     (emit-expr (cadr e) si env)
-     (emit 'shl ($ (- char-shift fixnum-shift)) '%eax)
-     (emit 'orl ($ char-tag) '%eax))
+     (emit-arg-expr 1)
+     (emit 'shl ($ (- char-shift fixnum-shift)) %immed)
+     (emit 'orl ($ char-tag) %immed))
     ((char->integer)
-     (emit-expr (cadr e) si env)
-     (emit 'shr ($ (- char-shift fixnum-shift)) '%eax))
+     (emit-arg-expr 1)
+     (emit 'shr ($ (- char-shift fixnum-shift)) %immed))
     ((null?)
-     (emit-expr (cadr e) si env)
+     (emit-arg-expr 1)
      (emit-cmp-eax ($ null-tag)))
     ((integer?)
-     (emit-expr (cadr e) si env)
+     (emit-arg-expr 1)
      (emit-mask-data ($ fixnum-mask))
      (emit-cmp-eax ($ fixnum-tag)))
     ((boolean?)
-     (emit-expr (cadr e) si env)
+     (emit-arg-expr 1)
      (emit-mask-data ($ boolean-mask))
      (emit-cmp-eax ($ boolean-tag)))
+    ((procedure?)
+     (emit-arg-expr 1)
+     (emit-mask-data ($ heap-mask))
+     (emit-cmp-eax ($ closure-tag)))
     ((zero?)
-     (emit-expr (cadr e) si env)
+     (emit-arg-expr 1)
      (emit-cmp-eax ($ 0)))
+    ((car) ; TODO: check that type is a pair
+     (emit-arg-expr 1)
+     (emit 'movl "-1(%eax)" %immed))
+    ((cdr) ; TODO: check that type is a pair
+     (emit-arg-expr 1)
+     (emit 'movl "3(%eax)" %immed))
     ((eq?)
-     (emit-expr (cadr e) si env)
-     (emit 'mov '%eax '%ebx)
+     (emit-arg-expr 1)
+     (emit 'mov %immed '%ebx)
      (emit-expr (caddr e) si env)
      (emit-cmp-eax "%ebx"))
     ((+)
@@ -178,68 +202,62 @@
 		       (length (cdr e))))
     ((if)
      (let ((L0 (uniq-label 'if)) (L1 (uniq-label 'else)))
-       (emit-expr (cadr e) si env)
-       (emit 'cmpl (immediate-rep #f) '%eax)
+       (emit-arg-expr 1)
+       (emit 'cmpl (immediate-rep #f) %immed)
        (emit 'je L0)
-       (emit-expr (caddr e) si env)
+       (emit-arg-expr 2)
        (emit 'jmp L1)
        (emit (label L0))
-       (emit-expr (cadddr e) si env)
+       (emit-arg-expr 3)
        (emit (label L1))))
     ((cons)
-     (emit-expr (cadr e) si env) ; compile sub exprs first
+     (emit-arg-expr 1) ; compile sub exprs first
      (emit-push-to-stack si) ; and push scratch to stack
      (emit-expr (caddr e) (- si word-size) env)
-     (emit 'movl '%eax "4(%esi)") ; second word of esi
-     (emit 'movl (stack-pos si) '%eax) ; move from stack to
-     (emit 'movl '%eax "0(%esi)") ; first word of esi
-     (emit 'movl '%esi '%eax)
-     (emit 'orl  ($ pair-tag) '%eax) ; mark as pair
-     (emit 'addl ($ double-word) '%esi)) ; bump esi forward
-    ((car) ; TODO: check that type is a pair
-     (emit-expr (cadr e) si env)
-     (emit 'movl "-1(%eax)" '%eax))
-    ((cdr) ; TODO: check that type is a pair
-     (emit-expr (cadr e) si env)
-     (emit 'movl "3(%eax)" '%eax))
+     (emit* ('movl %immed "4(%esi)") ; second word of esi
+	    ('movl (stack-pos si) %immed) ; move from stack to
+	    ('movl %immed "0(%esi)") ; first word of esi
+	    ('movl %heap %immed)
+	    ('orl  ($ pair-tag) %immed) ; mark as pair
+	    ('addl ($ double-word) %heap))) ; bump esi forward
     ((make-vector) ; TODO: add vector-set and vector-ref and type check
-     (emit-expr (cadr e) si env)
-     (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit 'imul ($ word-size) '%eax) ; each element is sizeof(word)
-     (emit 'movl '%eax '%ebx) ; backup %eax
+     (emit-arg-expr 1)
+     (emit* ('shr ($ fixnum-shift) %immed) ; no need for type data - we already know it's a uint
+	    ('imul ($ word-size) %immed) ; each element is sizeof(word)
+	    ('movl %immed '%ebx)) ; backup %eax
      (emit-new-heap-val '%ebx ($ vector-tag) '(%ebx)))
     ((vector-length)
-     (emit-expr (cadr e) si env)
-     (emit 'movl (conc (- vector-tag) "(%eax)") '%eax))
+     (emit-arg-expr 1)
+     (emit 'movl (conc (- vector-tag) "(%eax)") %immed))
     ((make-string)
-     (emit-expr (cadr e) si env)
-     (emit 'shr ($ fixnum-shift) '%eax) ; no need for type data - we already know it's a uint
-     (emit 'movl '%eax '%ebx) ; backup %eax
+     (emit-arg-expr 1)
+     (emit 'shr ($ fixnum-shift) %immed) ; no need for type data - we already know it's a uint
+     (emit 'movl %immed '%ebx) ; backup %eax
      (emit-new-heap-val '%ebx ($ string-tag) '(%ebx)))
     ((string-length)
-     (emit-expr (cadr e) si env)
-     (emit 'movl (conc (->string (- string-tag)) "(%eax)") '%eax)
-     (emit 'shl  ($ fixnum-shift) '%eax)) ; shift back to typed fixnum
+     (emit-arg-expr 1)
+     (emit 'movl (conc (->string (- string-tag)) "(%eax)") %immed)
+     (emit 'shl  ($ fixnum-shift) %immed)) ; shift back to typed fixnum
     ((string-set!)
-     (emit-expr (cadr e) si env)
-     (emit 'movl '%eax '%ecx) ; string
-     (emit 'movl '%eax '%edx) ; save original string ptr for later
-     (emit-expr (caddr e) si env)
-     (emit 'movl '%eax '%ebx) ; index
+     (emit-arg-expr 1)
+     (emit 'movl %immed '%ecx) ; string
+     (emit 'movl %immed '%edx) ; save original string ptr for later
+     (emit-arg-expr 2)
+     (emit 'movl %immed '%ebx) ; index
      (emit 'shr  ($ fixnum-shift) '%ebx)
-     (emit-expr (cadddr e) si env) ; char
-     (emit 'addl '%ebx '%ecx)
-     (emit 'shr  ($ char-shift) '%eax)
-     (emit 'movb '%al (string-append (->string (- (- string-tag 4))) "(%ecx)")) ; TODO: fix warning for this
-     (emit 'movl '%edx '%eax))
+     (emit-arg-expr 3)
+     (emit* ('addl '%ebx '%ecx)
+	    ('shr  ($ char-shift) %immed)
+	    ('movb '%al (conc (- (- string-tag 4)) "(%ecx)")) ; TODO: fix warning for this
+	    ('movl '%edx %immed)))
     ((string-ref)
-     (emit-expr (cadr e) si env) ; string
-     (emit 'movl '%eax '%ecx)
-     (emit-expr (caddr e) si env) ; index
-     (emit 'shr  ($ fixnum-shift) '%eax)
-     (emit 'addl '%eax '%ecx)
-     (emit 'movb (string-append (->string (- (- string-tag 4))) "(%ecx)") '%ah)
-     (emit 'orl  ($ char-tag) '%eax))
+     (emit-arg-expr 1) ; string
+     (emit 'movl %immed '%ecx)
+     (emit-arg-expr 2) ; string
+     (emit* ('shr  ($ fixnum-shift) %immed)
+	    ('addl %immed '%ecx)
+	    ('movb (conc (- (- string-tag 4)) "(%ecx)") '%ah)
+	    ('orl  ($ char-tag) %immed)))
     ((labels)
      (emit-expr (caddr e)
 		si
@@ -255,33 +273,30 @@
 				   si env) ; TODO: fix the env here (i.e. remove other locals)
 				 env))))))
     ((closure)
-     (emit-new-heap-val
-       ($ (* word-size (length (cdr e))))
-       ($ closure-tag)
-       `(,($ (expect-true (cadr e) (lookup (cadr e) env) "function not found")))))
+     (emit-closure (cadr e) (cddr e) env))
     (else #f)))
+
+(define (emit-closure lab free-vars env)
+  (emit-new-heap-val
+    ($ (* word-size (+ 2 (length free-vars))))
+    ($ closure-tag)
+    (list ($ (length free-vars))
+	  ($ (expect-true lab (lookup lab env) "function not found")))))
 
 (define (emit-funcall e si env)
   (emit-push-all-to-stack (cdr e) (- si word-size) env) ; save the args
   (emit-expr (car e) si env)
-  (emit 'movl '%eax '%ebx) ; TODO: FIXME: BUG: ebx *will* get clobbered eventually (clean up register use)
-  (emit 'movl '%ebx '%eax)
-  (emit 'subl ($ closure-tag) '%eax)
-  (emit 'movl (deref '%eax) '%eax)
-  (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
-	'%esp)
-  (emit 'call '*%eax)
-  (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
-	'%esp))
+  (emit* ('addl ($ (+ si word-size)) %stack) ; neg size of current stack (and ret addr)
+	 ('subl ($ closure-tag) %immed)
+	 ('addl ($ word-size) %immed)
+	 ('call '*\(%eax\))
+	 ('subl ($ (+ si word-size)) %stack))) ; add back size of current stack (and ret addr)
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
 	 (emit-immediate e))
 	((variable? e)
-	 (let ((v (lookup e env)))
-	   (if v
-	     (emit 'movl (stack-pos v) '%eax)
-	     (error "undefined binding" e))))
+	 (emit 'movl (stack-pos (lookup! e env)) %immed))
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
 	((funcall? e)
@@ -298,7 +313,7 @@
       (else
 	(let ((b (car b*)))
 	  (emit-expr (cadr b) si new-env)
-	  (emit 'movl '%eax (stack-pos si))
+	  (emit 'movl %immed (stack-pos si))
 	  (f (cdr b*)
 	     (push-var (car b) si new-env)
 	     (- si word-size)))))))
@@ -316,6 +331,12 @@
 
 (define (lookup var env) ; returns the stack offset of a variable in env
   (cadr (or (assoc var env) '(#f #f))))
+
+(define (lookup! var env)
+  (let ((e (lookup var env)))
+    (if e
+      e
+      (error "undefined binding" var))))
 
 (define (push-var var si env)
   `((,var ,si) . ,env))
@@ -355,6 +376,6 @@
 (define (compile-program prog)
   (with-asm-to-list
     (emit-function-header 'scheme_entry)
-    (emit 'movl "4(%esp)" '%esi) ; mov heap pointer to esi
+    (emit 'movl "4(%esp)" %heap) ; mov heap pointer to esi
     (emit-expr prog stack-start (make-env '()))
     (emit 'ret)))
