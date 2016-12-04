@@ -122,7 +122,7 @@
     (set! main-asm
       (append (with-asm-to-list
 		(emit-function-header code-id)
-		(let f ((fmls fmls) (si (- word-size)) (env env))
+		(let f ((fmls fmls) (si (- word-size)) (env (append env (map (lambda (f) `(,f free)) frees))))
 		  (cond
 		    ((null? fmls)
 		     (map (cut emit-expr <> si env) body))
@@ -266,9 +266,8 @@
   (emit-expr (car e) si env)
   (emit 'movl '%eax '%ebx) ; TODO: FIXME: BUG: ebx *will* get clobbered eventually (clean up register use)
   (emit 'movl '%ebx '%eax)
-  ; TODO:
-  ;(emit 'subl ($ closure-tag) '%eax)
-  ;(emit 'movl (deref '%eax) '%eax)
+  (emit 'subl ($ closure-tag) '%eax)
+  (emit 'movl (deref '%eax) '%eax)
   (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
 	'%esp)
   (emit 'call '*%eax)

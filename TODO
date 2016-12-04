@@ -1,6 +1,8 @@
 * write an assembler using delayed evaluation
+    * maybe add a lightweight bytecode?
 * cleanup
 * currying
+* utf-8
 * gc
 * bootstrap
 * profiler
