@@ -160,6 +160,10 @@
      (emit-expr (cadr e) si env)
      (emit-mask-data ($ boolean-mask))
      (emit-cmp-eax ($ boolean-tag)))
+    ((procedure?)
+     (emit-expr (cadr e) si env)
+     (emit-mask-data ($ heap-mask))
+     (emit-cmp-eax ($ closure-tag)))
     ((zero?)
      (emit-expr (cadr e) si env)
      (emit-cmp-eax ($ 0)))
@@ -255,23 +259,24 @@
 				   si env) ; TODO: fix the env here (i.e. remove other locals)
 				 env))))))
     ((closure)
-     (emit-new-heap-val
-       ($ (* word-size (length (cdr e))))
-       ($ closure-tag)
-       `(,($ (expect-true (cadr e) (lookup (cadr e) env) "function not found")))))
+     (emit-closure (cadr e) (cddr e) env))
     (else #f)))
+
+(define (emit-closure lab free-vars env)
+  (emit-new-heap-val
+    ($ (* word-size (+ 2 (length free-vars))))
+    ($ closure-tag)
+    (list ($ (length free-vars))
+	  ($ (expect-true lab (lookup lab env) "function not found")))))
 
 (define (emit-funcall e si env)
   (emit-push-all-to-stack (cdr e) (- si word-size) env) ; save the args
   (emit-expr (car e) si env)
-  (emit 'movl '%eax '%ebx) ; TODO: FIXME: BUG: ebx *will* get clobbered eventually (clean up register use)
-  (emit 'movl '%ebx '%eax)
-  ; TODO:
-  ;(emit 'subl ($ closure-tag) '%eax)
-  ;(emit 'movl (deref '%eax) '%eax)
   (emit 'addl ($ (+ si word-size)) ; neg size of current stack (and ret addr)
 	'%esp)
-  (emit 'call '*%eax)
+  (emit 'subl ($ closure-tag) '%eax)
+  (emit 'addl ($ word-size) '%eax)
+  (emit 'call '*\(%eax\))
   (emit 'subl ($ (+ si word-size)) ; add back size of current stack (and ret addr)
 	'%esp))
 
