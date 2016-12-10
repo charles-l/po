@@ -32,9 +32,13 @@
 (define symbol-tag 5)
 (define closure-tag 6)
 
-(define %immed '%eax) ; immediate register
-(define %stack '%esp) ; stack pointer
-(define %heap  '%esi) ; heap pointer
+(define %immed 	 '%eax) ; immediate register
+(define %stack 	 '%esp) ; stack pointer
+(define %heap 	 '%esi) ; heap pointer
+(define %closure '%esi) ; heap pointer
+
+(define (->symbol a)
+  (string->symbol (->string a)))
 
 ; compile time syntax checking
 (define-syntax expect
@@ -64,8 +68,11 @@
 (define ($ v) ; stick a "$" at the start of an immediate asm value
   (symbol-append '$ (string->symbol (->string v))))
 
-(define (deref v)
-  (symbol-append '\( v '\)))
+(define (reg-call s) ; oddity of x86 syntax
+  (symbol-append '* s))
+
+(define (deref v #!optional offset)
+  (symbol-append (->symbol (if offset offset 0)) '\( v '\)))
 
 (define (label e)
   (symbol-append e ':))
@@ -81,6 +88,14 @@
 
 (define (emit-immediate e)
   (emit 'movl (immediate-rep e) %immed))
+
+(define (emit-save-regs)
+  (emit* ('pushl %closure)
+	 ('pushl %stack)))
+
+(define (emit-restore-regs)
+  (emit* ('popl %stack)
+	 ('popl %closure)))
 
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
   (emit* ('movl (immediate-rep #f) '%ecx) ; move #t and #f into registers
@@ -183,10 +198,10 @@
      (emit-cmp-eax ($ 0)))
     ((car) ; TODO: check that type is a pair
      (emit-arg-expr 1)
-     (emit 'movl "-1(%eax)" %immed))
+     (emit 'movl (deref %immed -1) %immed))
     ((cdr) ; TODO: check that type is a pair
      (emit-arg-expr 1)
-     (emit 'movl "3(%eax)" %immed))
+     (emit 'movl (deref %immed 3) %immed))
     ((eq?)
      (emit-arg-expr 1)
      (emit 'mov %immed '%ebx)
@@ -214,9 +229,9 @@
      (emit-arg-expr 1) ; compile sub exprs first
      (emit-push-to-stack si) ; and push scratch to stack
      (emit-expr (caddr e) (- si word-size) env)
-     (emit* ('movl %immed "4(%esi)") ; second word of esi
+     (emit* ('movl %immed (deref %heap 4)) ; second word of esi
 	    ('movl (stack-pos si) %immed) ; move from stack to
-	    ('movl %immed "0(%esi)") ; first word of esi
+	    ('movl %immed (deref %heap)) ; first word of esi
 	    ('movl %heap %immed)
 	    ('orl  ($ pair-tag) %immed) ; mark as pair
 	    ('addl ($ double-word) %heap))) ; bump esi forward
@@ -228,7 +243,7 @@
      (emit-new-heap-val '%ebx ($ vector-tag) '(%ebx)))
     ((vector-length)
      (emit-arg-expr 1)
-     (emit 'movl (conc (- vector-tag) "(%eax)") %immed))
+     (emit 'movl (deref %immed (- vector-tag)) %immed))
     ((make-string)
      (emit-arg-expr 1)
      (emit 'shr ($ fixnum-shift) %immed) ; no need for type data - we already know it's a uint
@@ -236,7 +251,7 @@
      (emit-new-heap-val '%ebx ($ string-tag) '(%ebx)))
     ((string-length)
      (emit-arg-expr 1)
-     (emit 'movl (conc (->string (- string-tag)) "(%eax)") %immed)
+     (emit 'movl (deref %immed (- string-tag)) %immed)
      (emit 'shl  ($ fixnum-shift) %immed)) ; shift back to typed fixnum
     ((string-set!)
      (emit-arg-expr 1)
@@ -248,7 +263,7 @@
      (emit-arg-expr 3)
      (emit* ('addl '%ebx '%ecx)
 	    ('shr  ($ char-shift) %immed)
-	    ('movb '%al (conc (- (- string-tag 4)) "(%ecx)")) ; TODO: fix warning for this
+	    ('movb '%al (deref '%ecx (- (- string-tag 4)))) ; TODO: fix warning for this
 	    ('movl '%edx %immed)))
     ((string-ref)
      (emit-arg-expr 1) ; string
@@ -256,7 +271,7 @@
      (emit-arg-expr 2) ; string
      (emit* ('shr  ($ fixnum-shift) %immed)
 	    ('addl %immed '%ecx)
-	    ('movb (conc (- (- string-tag 4)) "(%ecx)") '%ah)
+	    ('movb (deref '%ecx (- (- string-tag 4))) '%ah)
 	    ('orl  ($ char-tag) %immed)))
     ((labels)
      (emit-expr (caddr e)
@@ -289,7 +304,7 @@
   (emit* ('addl ($ (+ si word-size)) %stack) ; neg size of current stack (and ret addr)
 	 ('subl ($ closure-tag) %immed)
 	 ('addl ($ word-size) %immed)
-	 ('call '*\(%eax\))
+	 ('call (reg-call (deref %immed)))
 	 ('subl ($ (+ si word-size)) %stack))) ; add back size of current stack (and ret addr)
 
 (define (emit-expr e si env)

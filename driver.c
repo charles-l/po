@@ -1,9 +1,10 @@
+#define _DEFAULT_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <unistd.h>
+#include <sys/mman.h>
 //#define DEBUG
-
-#define HEAP_SIZE (16 * 1024 * 1024) // normal page size
 
 // immediate data types
 
@@ -152,14 +153,41 @@ void print_val(po_immediate val) {
     }
 }
 
+char *alloc_protected(int size) {
+    int page = getpagesize();
+    int status;
+    int aligned_size = ((size + page - 1) / page) * page;
+    char *p = mmap(0, aligned_size + 2 * page, PROT_READ | PROT_WRITE,
+            MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+    if(p == MAP_FAILED) { perror("map"); exit(1);}
+    status = mprotect(p, page, PROT_NONE);
+    if(status != 0) {perror("mprotect"); exit(status);}
+    status = mprotect(p + page + aligned_size, page, PROT_NONE);
+    if(status != 0) {perror("mprotect"); exit(status);}
+    return (p + page);
+}
+
+void free_protected(char *p, int size) {
+    int page = getpagesize();
+    int status;
+    int aligned_size = ((size + page - 1) / page) * page;
+    status = munmap(p - page, aligned_size + 2 * page);
+    if(status != 0) {perror("munmap"); exit(status);}
+}
+
 int main() {
-    int *heap = malloc(HEAP_SIZE);
+    int stack_size = (16 * 4096);
+    int heap_size = (4 * 16 * 4096);
+
+    char *heap = alloc_protected(heap_size);
+    char *stack = alloc_protected(stack_size);
     po_immediate val = scheme_entry(heap);
 #ifdef DEBUG
     dump_heap(heap);
 #endif
     print_val(val);
     putchar('\n');
-    free(heap);
+    free_protected(heap, heap_size);
+    free_protected(stack, stack_size);
     return 0;
 }

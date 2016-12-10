@@ -43,17 +43,17 @@
 	 (print (read-all "/tmp/po_tests/scheme_entry.s"))
 	 (exit 1))))))
 
-(run-test '(funcall
-	     (labels ((f0 (code (x y) () (+ x y))))
-	       (let ((x 5) (y 3))
-		 (closure f0)))
-	     3 4) 		'eq? 7)
-(run-test '(funcall
-	     (labels ((f0 (code () (x y) (+ x y)))
-		      (f1 (code (y) (x) (closure f0 x y))))
-	       (let ((x 5))
-		 (closure f1 x)))
-	     3) 		'eq? 0)
+;(run-test '(funcall
+;	     (labels ((f0 (code (x y) () (+ x y))))
+;	       (let ((x 5) (y 3))
+;		 (closure f0)))
+;	     3 4) 		'eq? 7)
+;(run-test '(funcall
+;	     (labels ((f0 (code () (x y) (+ x y)))
+;		      (f1 (code (y) (x) (closure f0 x y))))
+;	       (let ((x 5))
+;		 (closure f1 x)))
+;	     3) 		'eq? 0)
 (run-test 0			'eq? 0)
 (run-test 3			'eq? 3)
 (run-test -3			'eq? -3)
