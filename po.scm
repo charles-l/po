@@ -35,7 +35,7 @@
 (define %immed 	 '%eax) ; immediate register
 (define %stack 	 '%esp) ; stack pointer
 (define %heap 	 '%esi) ; heap pointer
-(define %closure '%esi) ; heap pointer
+(define %closure '%edi) ; closure pointer
 
 (define (->symbol a)
   (string->symbol (->string a)))
@@ -89,14 +89,6 @@
 (define (emit-immediate e)
   (emit 'movl (immediate-rep e) %immed))
 
-(define (emit-save-regs)
-  (emit* ('pushl %closure)
-	 ('pushl %stack)))
-
-(define (emit-restore-regs)
-  (emit* ('popl %stack)
-	 ('popl %closure)))
-
 (define (emit-cmp-eax val) ; cmp eax to val (TODO: make this more efficient)
   (emit* ('movl (immediate-rep #f) '%ecx) ; move #t and #f into registers
 	 ('movl (immediate-rep #t) '%edx)
@@ -106,7 +98,8 @@
 
 (define (emit-new-heap-val size tag initials)
   (mapi (lambda (e i)
-	  (emit 'movl e (conc (* i word-size) "(%esi)")))
+	  (emit* ('movl e %immed) ; UGGGG IT SO SLOW
+		 ('movl %immed (deref %heap (* i word-size)))))
 	initials)
   (emit* ('movl %heap  %immed)
 	 ('orl  tag    %immed)
@@ -118,19 +111,26 @@
   (if (not (null? l))
     (begin
       (emit-expr (car l) si env)
-      (emit-push-to-stack si)
+      (emit-push-to-stack si %immed)
       (emit-push-all-to-stack (cdr l) (- si word-size) env))
     (+ si word-size))) ; return ending stack pos
 
 (define (emit-apply-stack op si-start n) ; apply an operator to a stack
   (if (= n 1)
-    (emit 'movl (stack-pos si-start) %immed)
+    (emit 'movl (deref %stack si-start) %immed)
     (begin
       (emit-apply-stack op (+ si-start word-size) (sub1 n))
-      (emit op (stack-pos si-start) %immed))))
+      (emit op (deref %stack si-start) %immed))))
 
-(define (emit-push-to-stack si)
-  (emit 'movl %immed (stack-pos si)))
+(define (emit-push-to-stack si . vars)
+  (mapi (lambda (v i)
+	  (emit 'movl v (deref %stack (- si (* word-size i)))))
+	vars))
+
+(define (emit-pop-from-stack si . vars)
+  (mapi (lambda (v i)
+	  (emit 'movl (deref %stack (+ si (* word-size i))) v))
+	vars))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
   (emit 'andl mask %immed))
@@ -147,7 +147,13 @@
     (set! main-asm
       (append (with-asm-to-list
 		(emit-function-header code-id)
-		(let f ((fmls fmls) (si (- word-size)) (env (append env (map (lambda (f) `(,f free)) frees))))
+		(let f ((fmls fmls)
+			(si (- word-size))
+			(env (append env (map
+					   (lambda (f i)
+					     (list f 'free (* word-size i)))
+					   frees
+					   (iota (length frees) 2)))))
 		  (cond
 		    ((null? fmls)
 		     (map (cut emit-expr <> si env) body))
@@ -227,10 +233,10 @@
        (emit (label L1))))
     ((cons)
      (emit-arg-expr 1) ; compile sub exprs first
-     (emit-push-to-stack si) ; and push scratch to stack
+     (emit-push-to-stack si %immed) ; and push scratch to stack
      (emit-expr (caddr e) (- si word-size) env)
      (emit* ('movl %immed (deref %heap 4)) ; second word of esi
-	    ('movl (stack-pos si) %immed) ; move from stack to
+	    ('movl (deref %stack si) %immed) ; move from stack to
 	    ('movl %immed (deref %heap)) ; first word of esi
 	    ('movl %heap %immed)
 	    ('orl  ($ pair-tag) %immed) ; mark as pair
@@ -291,27 +297,37 @@
      (emit-closure (cadr e) (cddr e) env))
     (else #f)))
 
+(define (make-frees lvars)
+  (map (cut list <> 'free <>) lvars (iota (length lvars) 1)))
+
 (define (emit-closure lab free-vars env)
   (emit-new-heap-val
     ($ (* word-size (+ 2 (length free-vars))))
     ($ closure-tag)
-    (list ($ (length free-vars))
-	  ($ (expect-true lab (lookup lab env) "function not found")))))
+    `(,($ (length free-vars))
+      ,($ (lookup! lab env))
+      ,@(map (cut lookup! <> env) free-vars))))
 
 (define (emit-funcall e si env)
+  ; TODO: refactor - this is an ugly mess right now
+  (emit-push-to-stack si %closure) ; save registers
+  (emit 'addl ($ (+ si word-size)) %stack) ; step over saved regs
   (emit-push-all-to-stack (cdr e) (- si word-size) env) ; save the args
   (emit-expr (car e) si env)
   (emit* ('addl ($ (+ si word-size)) %stack) ; neg size of current stack (and ret addr)
 	 ('subl ($ closure-tag) %immed)
+	 ('movl %immed %closure) ; set the current closure
 	 ('addl ($ word-size) %immed)
 	 ('call (reg-call (deref %immed)))
-	 ('subl ($ (+ si word-size)) %stack))) ; add back size of current stack (and ret addr)
+	 ('subl ($ (+ si word-size)) %stack)) ; add back size of current stack (and ret addr)
+  (emit 'subl ($ (+ si word-size)) %stack)
+  (emit-pop-from-stack si %closure))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
 	 (emit-immediate e))
 	((variable? e)
-	 (emit 'movl (stack-pos (lookup! e env)) %immed))
+	 (emit 'movl (lookup! e env) %immed))
 	((let? e)
 	 (emit-let (cadr e) (caddr e) si env))
 	((funcall? e)
@@ -328,7 +344,7 @@
       (else
 	(let ((b (car b*)))
 	  (emit-expr (cadr b) si new-env)
-	  (emit 'movl %immed (stack-pos si))
+	  (emit 'movl %immed (deref %stack si))
 	  (f (cdr b*)
 	     (push-var (car b) si new-env)
 	     (- si word-size)))))))
@@ -344,8 +360,16 @@
 
 (define (make-env bindings) bindings)
 
-(define (lookup var env) ; returns the stack offset of a variable in env
-  (cadr (or (assoc var env) '(#f #f))))
+(define (lookup var env) ; returns the memory location of a binding
+  (let ((var (assoc var env)))
+    (cond
+      ((not var) #f) ; failed lookup
+      ((eq? (cadr var) 'free)
+       (deref %closure (caddr var)))
+      ((number? (cadr var))
+       (deref %stack (cadr var)))
+      (else
+	(cadr var)))))
 
 (define (lookup! var env)
   (let ((e (lookup var env)))
@@ -355,13 +379,6 @@
 
 (define (push-var var si env)
   `((,var ,si) . ,env))
-
-(define (stack-pos si)
-  (cond
-    ((symbol? si) (symbol-append '$ si)) ; label
-    ((zero? si) (error "0(%esp) can't be set"))
-    (else
-      (conc si "(%esp)"))))
 
 (define (immediate? v) ; literal value that fits in one word (1, #\a, #t, '())
   (or (integer? v) (char? v) (boolean? v) (null? v)))
@@ -391,6 +408,7 @@
 (define (compile-program prog)
   (with-asm-to-list
     (emit-function-header 'scheme_entry)
-    (emit 'movl "4(%esp)" %heap) ; mov heap pointer to esi
+    (emit 'movl ($ 0) %closure) ; null out closure pointer (main isn't a closure)
+    (emit 'movl (deref %stack 4) %heap) ; mov heap pointer to esi
     (emit-expr prog stack-start (make-env '()))
     (emit 'ret)))

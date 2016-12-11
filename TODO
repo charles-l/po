@@ -1,5 +1,4 @@
 * write an assembler using delayed evaluation
-    * maybe add a lightweight bytecode?
 * cleanup
 * currying
 * utf-8
@@ -7,6 +6,13 @@
 * utf-8
 * bootstrap
 * profiler
+* write lightweight IR or bytecode
+    * needed features
+        * conds
+        * stack
+        * heap
+            * gc(?)
+        * closures
 * OPTIMIZE THE CRAP OUTTA EVERYTHING
 * port to ARM
 * number tower
