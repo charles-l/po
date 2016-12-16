@@ -43,6 +43,12 @@
 	 (print (read-all "/tmp/po_tests/scheme_entry.s"))
 	 (exit 1))))))
 
+;TODO: test this
+;(run-test '(let ((f (labels ((f0 (code (y) (x) (+ y x))))
+;		      (let ((x 5))
+;			(closure f0 x)))))
+;	     (funcall f 4))
+;	  'eq? 8)
 (run-test '(funcall
 	     (labels ((f0 (code (x y) () (+ x y))))
 	       (closure f0))
@@ -52,12 +58,6 @@
 	       (let ((x 5))
 		 (closure f0 x))) 3)
 	  'eq? 8)
-;THIS ISNT WORKING EITHER (stack's borked rn)
-;(run-test '(let ((f (labels ((f0 (code (y) (x) (+ y x))))
-;		      (let ((x 5))
-;			(closure f0 x)))))
-;	     (funcall f 4))
-;	  'eq? 8)
 ; STILL NOT WORKING:
 ;(run-test '(funcall
 ;	     (labels ((f0 (code () (x y) (+ x y)))

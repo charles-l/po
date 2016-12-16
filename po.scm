@@ -2,7 +2,6 @@
 
 (define word-size 4)
 (define double-word (* 2 word-size))
-(define stack-start (- word-size)) ; start of the stack (offset of %esp)
 
 ;;; data types
 
@@ -36,6 +35,8 @@
 (define %stack 	 '%esp) ; stack pointer
 (define %heap 	 '%esi) ; heap pointer
 (define %closure '%edi) ; closure pointer
+
+(define saveable-regs (list %closure))
 
 (define (->symbol a)
   (string->symbol (->string a)))
@@ -98,16 +99,16 @@
 
 (define (emit-new-heap-val size tag initials)
   (mapi (lambda (e i)
-	  (emit* ('movl e %immed) ; UGGGG IT SO SLOW
+	  (emit* ('movl e %immed)
 		 ('movl %immed (deref %heap (* i word-size)))))
 	initials)
   (emit* ('movl %heap  %immed)
 	 ('orl  tag    %immed)
 	 ('addl size   %heap) ; advance %esi
-	 ('addl ($ 11) %heap) ; and align it on 8 bytes
-	 ('andl ($ -8) %heap)))
+	 ('andl ($ -8) %heap))) ; alignment 8 bytes
 
-(define (emit-push-all-to-stack l si env) ; push a list to the stack
+; TODO: I don't like this function. Probably worth removing at some point.
+(define (emit-push-all-to-stack l si env) ; push a list to the stack (with emit-expr for every elem)
   (if (not (null? l))
     (begin
       (emit-expr (car l) si env)
@@ -115,7 +116,8 @@
       (emit-push-all-to-stack (cdr l) (- si word-size) env))
     (+ si word-size))) ; return ending stack pos
 
-(define (emit-apply-stack op si-start n) ; apply an operator to a stack
+; apply an operator to a stack (IN REVERSE ORDER!!)
+(define (emit-apply-stack op si-start n)
   (if (= n 1)
     (emit 'movl (deref %stack si-start) %immed)
     (begin
@@ -129,7 +131,7 @@
 
 (define (emit-pop-from-stack si . vars)
   (mapi (lambda (v i)
-	  (emit 'movl (deref %stack (+ si (* word-size i))) v))
+	  (emit 'movl (deref %stack (- si (* word-size i))) v))
 	vars))
 
 (define (emit-mask-data mask) ; leave just the type behind for type checks
@@ -142,8 +144,9 @@
 	 ('.align 8)
 	 ((label name))))
 
+; TODO: refactor this
 (define (emit-code fmls frees body si env)
-  (let ((code-id (uniq-label 'L)))
+  (let ((code-id (uniq-label 'L)) (n (length fmls)))
     (set! main-asm
       (append (with-asm-to-list
 		(emit-function-header code-id)
@@ -156,6 +159,7 @@
 					   (iota (length frees) 2)))))
 		  (cond
 		    ((null? fmls)
+		     ; emit every sexp in the body
 		     (map (cut emit-expr <> si env) body))
 		    (else
 		      (f (cdr fmls)
@@ -288,7 +292,7 @@
 		    (l (cdr bindings)
 		       (push-var (caar bindings)
 				 (emit-code
-				   (cadr (cadar bindings))
+				   (cadr  (cadar bindings))
 				   (caddr (cadar bindings))
 				   (cdddr (cadar bindings))
 				   si env) ; TODO: fix the env here (i.e. remove other locals)
@@ -308,20 +312,26 @@
       ,($ (lookup! lab env))
       ,@(map (cut lookup! <> env) free-vars))))
 
+(define (save-regs si)
+  (apply emit-push-to-stack si saveable-regs)
+  (emit 'addl ($ (- si (* word-size (length saveable-regs)))) %stack))
+
+(define (restore-regs si)
+  (emit 'subl ($ (- si (* word-size (length saveable-regs)))) %stack)
+  (apply emit-pop-from-stack si saveable-regs))
+
 (define (emit-funcall e si env)
-  ; TODO: refactor - this is an ugly mess right now
-  (emit-push-to-stack si %closure) ; save registers
-  (emit 'addl ($ (+ si word-size)) %stack) ; step over saved regs
-  (emit-push-all-to-stack (cdr e) (- si word-size) env) ; save the args
-  (emit-expr (car e) si env)
-  (emit* ('addl ($ (+ si word-size)) %stack) ; neg size of current stack (and ret addr)
-	 ('subl ($ closure-tag) %immed)
-	 ('movl %immed %closure) ; set the current closure
-	 ('addl ($ word-size) %immed)
-	 ('call (reg-call (deref %immed)))
-	 ('subl ($ (+ si word-size)) %stack)) ; add back size of current stack (and ret addr)
-  (emit 'subl ($ (+ si word-size)) %stack)
-  (emit-pop-from-stack si %closure))
+  (save-regs si)
+  (let ((si (- word-size))) ; leave space for return point
+    (emit-push-all-to-stack (cdr e)
+			    (- si word-size) ; need to hop over return slot
+			    env) ; save the args
+    (emit-expr (car e) si env)
+    (emit* ('subl ($ closure-tag) %immed)
+	   ('movl %immed %closure) ; set the current closure addr
+	   ('addl ($ word-size) %immed)
+	   ('call (reg-call (deref %immed)))))
+  (restore-regs si))
 
 (define (emit-expr e si env)
   (cond ((immediate? e)
@@ -410,5 +420,5 @@
     (emit-function-header 'scheme_entry)
     (emit 'movl ($ 0) %closure) ; null out closure pointer (main isn't a closure)
     (emit 'movl (deref %stack 4) %heap) ; mov heap pointer to esi
-    (emit-expr prog stack-start (make-env '()))
+    (emit-expr prog (- word-size) (make-env '()))
     (emit 'ret)))
