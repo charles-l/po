@@ -1,5 +1,6 @@
 po
 *.o
+*.out
 *.swp
 print-atom-gdb.py
 *.s
