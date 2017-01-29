@@ -1,7 +1,6 @@
-* write an assembler using delayed evaluation
+# old (but still relevant):
 * cleanup
 * currying
-* utf-8
 * gc
 * utf-8
 * bootstrap
@@ -18,3 +17,12 @@
 * floating point
 * unicode support
 * stdlib
+
+====
+# po2
+
+needed to bootstrap:
+* closures
+* strings
+
+* dynamic symbol lookup
