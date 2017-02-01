@@ -12,6 +12,11 @@
 (define null-mask #b111111)
 (define null-tag  #b101111)
 
+(define closure-mask #b111)
+(define closure-tag  #b110)
+
+(define reg-arg-order '(rdi rsi rdx rcx r8 r9))
+
 ; debug
 (define (p . args)
   (map (cut format (current-error-port) "~A " <>) args)
@@ -33,31 +38,52 @@
      null-tag)))
 
 (define (make-env)
-  (let ((stack '()))
-    (define (push name)
-      (set! stack (append stack `(,name))))
+  (let ((stack '(())))
+    (define (push v)
+      (set-car! stack (append (car stack) `(,v))))
+
+    (define (push-args args)
+      (map (lambda (a r) (push `(,a ,r))) args reg-arg-order))
 
     (define (pop)
+      (set! stack (cdr stack)))
+
+    (define (push-new-frame)
+      (set! stack (cons '() stack)))
+
+    (define (pop-stack-frame)
       (set! stack (cdr stack)))
 
     (define (lookup name)
       (call/cc
 	(lambda (ret)
-	  (let l ((s stack))
-	    (cond
-	      ((null? s) (ret #f))
-	      ((eq? (car s) name) 0)
-	      (else (add1 (l (cdr s)))))))))
+	  (cond
+	    ((null? stack) (ret #f))
+	    ((list-index
+	       (lambda (x)
+		 (cond
+		   ((eq? x name) #t)
+		   ((and (list? x) (eq? (car x) name))
+		    (ret (cadr x)))
+		   (else #f)))
+	       (car stack)) => (lambda (x) x))
+	    (else
+	      (error "variable unbound" name))))))
 
     (define (debug)
-      (print stack))
+      (p stack))
 
     (define (dispatch . args)
       (cond
 	((eq? (car args) 'push) (push (cadr args)))
+	((eq? (car args) 'push-args) (push-args (cadr args)))
 	((eq? (car args) 'pop) (pop))
 	((eq? (car args) 'lookup) (lookup (cadr args)))
-	((eq? (car args) 'debug) (debug))))
+	((eq? (car args) 'new-frame) (push-new-frame))
+	((eq? (car args) 'pop-frame) (pop-stack-frame))
+	((eq? (car args) 'debug) (debug))
+	(else
+	  (error "unknown command" args))))
 
     dispatch))
 
@@ -65,7 +91,9 @@
   (symbol-append '\[ reg '+ (string->symbol (->string off)) '\]))
 
 (define (load-var si #!optional (reg 'rax))
-  (emit 'mov (deref 'rbp (- (* word-size (+ 1 si)))) reg))
+  (if (number? si)
+    (emit 'mov (deref 'rbp (- (* word-size (+ 1 si)))) reg)
+    (emit 'mov si reg)))
 
 (define (imm? e)
   (or (integer? e) (null? e)))
@@ -75,11 +103,32 @@
 ; * convert cond to if with begin statements
 ; * convert let to lambda
 
+(define (with-emit-to-list thunk)
+  (fluid-let ((main-asm '()))
+	     (thunk)
+	     main-asm))
+
+(define (emit-tag tag reg)
+  (emit 'or tag reg))
+
+(define (rem-tag tag reg)
+  (emit 'sub tag reg))
+
+(define (proc-call? e)
+  (and (list? e) (> (length e) 1)))
+
+; assumes func addr is in rax
+(define (emit-apply-proc args)
+  ; TODO: check tag
+  (rem-tag closure-tag 'rax)
+  (emit 'call 'rax))
+
 (define (emit-eval-exp e env)
   (match e
 	 (('set! var e)
 	  (env 'push var)
-	  (emit 'push (imm-rep e)))
+	  (emit-eval-exp e env)
+	  (emit 'push 'rax))
 	 (('begin e ...)
 	  (map (cut emit-eval-exp <> env) e))
 	 (('if c t e)
@@ -95,6 +144,31 @@
 	    (emit-eval-exp e env)
 
 	    (emit-label done)))
+	 (('lambda (fmls ...) body ...)
+	  (let ((label (gensym 'lambda)))
+	    (set! func-asm
+	      (append func-asm
+		      (with-emit-to-list
+			(lambda ()
+			  (emit-label label)
+			  (emit 'push 'rbp)
+			  (emit 'mov 'rsp 'rbp)
+			  (env 'new-frame)
+			  (env 'push-args fmls)
+			  (map (cut emit-eval-exp <> env) body)
+			  (emit 'pop 'rbp)
+			  (emit 'ret)
+			  (env 'pop-frame)))))
+	    (emit 'mov label 'rax)
+	    (emit-tag closure-tag 'rax)))
+	 ((? proc-call? e)
+	  (map (lambda (e r)
+		 (emit-eval-exp e env)
+		 (emit 'mov 'rax r))
+	       (cdr e)
+	       reg-arg-order)
+	  (emit-eval-exp (car e) env)
+	  (emit-apply-proc (cdr e)))
 	 ((? symbol? e)
 	  (cond
 	    ((env 'lookup e) => load-var)
@@ -121,7 +195,7 @@
     (emit 'int #x80)
 
     (emit 'pop 'rbp)
-    main-asm))
+    (append func-asm main-asm)))
 
 (define (print-instr i)
   (cond
@@ -137,11 +211,12 @@
 		     (lambda ()
 		       (map print-instr
 			    (compile '(begin
-					(set! a 3)
+					(set! a	4)
 					(set! b 5)
-					a
-					(if 3
+					(if a
 					  1
-					  2))))))
+					  2)
+					(set! c (lambda (x) x))
+					(c 1))))))
 
 (system "yasm -f elf64 out.s && ld out.o && echo 'DONE'")
