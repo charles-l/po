@@ -115,7 +115,7 @@
   (emit 'sub tag reg))
 
 (define (proc-call? e)
-  (and (list? e) (> (length e) 1)))
+  (and (list? e) (> (length e) 0)))
 
 ; assumes func addr is in rax
 (define (emit-apply-proc args)
@@ -123,7 +123,12 @@
   (rem-tag closure-tag 'rax)
   (emit 'call 'rax))
 
+(define (emit-debug-exp e)
+  (emit #\; (string-take (->string e)
+		(min (string-length (->string e)) 40))))
+
 (define (emit-eval-exp e env)
+  (emit-debug-exp e)
   (match e
 	 (('set! var e)
 	  (env 'push var)
@@ -144,6 +149,8 @@
 	    (emit-eval-exp e env)
 
 	    (emit-label done)))
+	 (('asm%% asm ...)
+	  (apply emit asm))
 	 (('lambda (fmls ...) body ...)
 	  (let ((label (gensym 'lambda)))
 	    (set! func-asm
@@ -175,7 +182,9 @@
 	    (else
 	      (error "unknown binding " e))))
 	 ((? imm? e)
-	  (emit 'mov (imm-rep e) 'rax))))
+	  (emit 'mov (imm-rep e) 'rax))
+	 (=>
+	   (error "failed to parse expression" e))))
 
 (define (emit-label e)
   (emit (symbol-append e ':)))
@@ -211,12 +220,19 @@
 		     (lambda ()
 		       (map print-instr
 			    (compile '(begin
-					(set! a	4)
-					(set! b 5)
-					(if a
-					  1
-					  2)
-					(set! c (lambda (x) x))
-					(c 1))))))
+					(set! putchar%
+					  (lambda (c)
+					    ; TODO: shift down c
+					    (asm%% shr 2 rdi)
+					    (asm%% push rdi)
+
+					    (asm%% mov rbp rsi)
+					    (asm%% mov 1 rax)
+					    (asm%% mov 1 rdi)
+					    (asm%% mov 1 rdx)
+					    (asm%% syscall)
+
+					    (asm%% pop rdi)))
+					(putchar% 46))))))
 
 (system "yasm -f elf64 out.s && ld out.o && echo 'DONE'")
