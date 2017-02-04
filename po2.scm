@@ -90,10 +90,10 @@
 (define (deref reg off)
   (symbol-append '\[ reg '+ (string->symbol (->string off)) '\]))
 
-(define (load-var si #!optional (reg 'rax))
-  (if (number? si)
-    (emit 'mov (deref 'rbp (- (* word-size (+ 1 si)))) reg)
-    (emit 'mov si reg)))
+(define (var-val i)
+  (if (number? i)
+    (deref 'rbp (* word-size (+ 1 i)))
+    i))
 
 (define (imm? e)
   (or (integer? e) (null? e)))
@@ -118,22 +118,36 @@
   (and (list? e) (> (length e) 0)))
 
 ; assumes func addr is in rax
-(define (emit-apply-proc args)
+(define (emit-apply-proc name args)
   ; TODO: check tag
-  (rem-tag closure-tag 'rax)
-  (emit 'call 'rax))
+  (emit 'call (asm-nice-name name)))
 
 (define (emit-debug-exp e)
   (emit #\; (string-take (->string e)
 		(min (string-length (->string e)) 40))))
 
+; get the immediate rep value if it's available
+(define (emit-or-imm e env)
+  (cond
+    ((imm? e) (imm-rep e))
+    ((symbol? e) (env 'lookup e))
+    (else
+      (emit-eval-exp e env)
+      'rax)))
+
 (define (emit-eval-exp e env)
   (emit-debug-exp e)
   (match e
-	 (('set! var e)
-	  (env 'push var)
-	  (emit-eval-exp e env)
-	  (emit 'push 'rax))
+	 (('def var* ...)
+	  ; TODO: assert this is at the start of a function
+	  ; TODO: hoist vars
+	  (emit 'sub (* word-size (length var*)) 'rsp)
+	  (map (cut env 'push <>) var*))
+	 (('set! var val)
+	  (let ((i (env 'lookup var)))
+	    (if i
+	      (emit 'mov (emit-or-imm val env) (conc "DWORD " (var-val i)))
+	      (error "var not defined" var))))
 	 (('begin e ...)
 	  (map (cut emit-eval-exp <> env) e))
 	 (('if c t e)
@@ -149,24 +163,27 @@
 	    (emit-eval-exp e env)
 
 	    (emit-label done)))
-	 (('asm%% asm ...)
+	 (('asm% asm ...)
 	  (apply emit asm))
-	 (('lambda (fmls ...) body ...)
-	  (let ((label (gensym 'lambda)))
+	 (('export 'fun lab)
+	  (emit 'global (asm-nice-name lab)))
+	 (('proc name (fmls ...) body ...)
+	  (let ((l (asm-nice-name name)))
 	    (set! func-asm
 	      (append func-asm
 		      (with-emit-to-list
 			(lambda ()
-			  (emit-label label)
+			  (emit 'type 'function l)
+			  (emit-label l)
 			  (emit 'push 'rbp)
 			  (emit 'mov 'rsp 'rbp)
 			  (env 'new-frame)
 			  (env 'push-args fmls)
 			  (map (cut emit-eval-exp <> env) body)
-			  (emit 'pop 'rbp)
+			  (emit 'leave)
 			  (emit 'ret)
 			  (env 'pop-frame)))))
-	    (emit 'mov label 'rax)
+	    (emit 'mov l 'rax)
 	    (emit-tag closure-tag 'rax)))
 	 ((? proc-call? e)
 	  (map (lambda (e r)
@@ -174,11 +191,10 @@
 		 (emit 'mov 'rax r))
 	       (cdr e)
 	       reg-arg-order)
-	  (emit-eval-exp (car e) env)
-	  (emit-apply-proc (cdr e)))
+	  (emit-apply-proc (car e) (cdr e)))
 	 ((? symbol? e)
 	  (cond
-	    ((env 'lookup e) => load-var)
+	    ((env 'lookup e) => (lambda (x) (emit 'mov 'rax (var-val x))))
 	    (else
 	      (error "unknown binding " e))))
 	 ((? imm? e)
@@ -206,6 +222,9 @@
     (emit 'pop 'rbp)
     (append func-asm main-asm)))
 
+(define (asm-nice-name name)
+  (string->symbol (conc "__po_" (string-translate* (->string name) '(("%", "_PERCENT"))))))
+
 (define (print-instr i)
   (cond
     ((> (length i) 1)
@@ -216,23 +235,24 @@
     (else
       (display (car i)) (newline))))
 
-(with-output-to-file "./out.s"
+(with-output-to-file "./boot.s"
 		     (lambda ()
 		       (map print-instr
 			    (compile '(begin
-					(set! putchar%
-					  (lambda (c)
-					    ; TODO: shift down c
-					    (asm%% shr 2 rdi)
-					    (asm%% push rdi)
+					(def a b c)
+					(export fun putchar)
+					(proc putchar (c)
+					      (asm% shr 1 rdi)
+					      (asm% push rdi)
 
-					    (asm%% mov rbp rsi)
-					    (asm%% mov 1 rax)
-					    (asm%% mov 1 rdi)
-					    (asm%% mov 1 rdx)
-					    (asm%% syscall)
+					      (asm% mov rsp rsi)
+					      (asm% mov 1 rax)
+					      (asm% mov 1 rdi)
+					      (asm% mov 1 rdx)
+					      (asm% syscall)
 
-					    (asm%% pop rdi)))
-					(putchar% 46))))))
+					      (asm% pop rdi))
+					(set! a 65)
+					(putchar a))))))
 
-(system "yasm -f elf64 out.s && ld out.o && echo 'DONE'")
+(system "yasm -f elf64 boot.s && ld boot.o && echo 'DONE'")
