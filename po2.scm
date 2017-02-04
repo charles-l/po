@@ -92,7 +92,7 @@
 
 (define (var-val i)
   (if (number? i)
-    (deref 'rbp (* word-size (+ 1 i)))
+    (deref 'rbp (- (* word-size (+ 1 i))))
     i))
 
 (define (imm? e)
@@ -166,7 +166,11 @@
 	 (('asm% asm ...)
 	  (apply emit asm))
 	 (('export 'fun lab)
-	  (emit 'global (asm-nice-name lab)))
+	  (set! func-asm
+	    (append func-asm
+		    (with-emit-to-list
+		      (lambda ()
+			(emit 'global (asm-nice-name lab)))))))
 	 (('proc name (fmls ...) body ...)
 	  (let ((l (asm-nice-name name)))
 	    (set! func-asm
@@ -194,7 +198,7 @@
 	  (emit-apply-proc (car e) (cdr e)))
 	 ((? symbol? e)
 	  (cond
-	    ((env 'lookup e) => (lambda (x) (emit 'mov 'rax (var-val x))))
+	    ((env 'lookup e) => (lambda (x) (emit 'mov (var-val x) 'rax)))
 	    (else
 	      (error "unknown binding " e))))
 	 ((? imm? e)
@@ -219,7 +223,7 @@
     (emit 'mov 1 'rax)
     (emit 'int #x80)
 
-    (emit 'pop 'rbp)
+    (emit 'leave)
     (append func-asm main-asm)))
 
 (define (asm-nice-name name)
@@ -242,7 +246,7 @@
 					(def a b c)
 					(export fun putchar)
 					(proc putchar (c)
-					      (asm% shr 1 rdi)
+					      (asm% shr 2 rdi)
 					      (asm% push rdi)
 
 					      (asm% mov rsp rsi)
