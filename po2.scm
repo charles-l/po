@@ -182,9 +182,7 @@
 			  (map (cut emit-eval-exp <> env) body)
 			  (emit 'leave)
 			  (emit 'ret)
-			  (env 'pop-frame)))))
-	    (emit 'mov l 'rax)
-	    (emit-tag closure-tag 'rax)))
+			  (env 'pop-frame)))))))
 	 ((? proc-call? e)
 	  (map (lambda (e r)
 		 (emit 'mov (emit-or-imm e env) r))
@@ -212,13 +210,17 @@
     (emit 'push 'rbp)
     (emit 'mov 'rsp 'rbp)
     (let ((env (make-env)))
-      (emit-eval-exp prog env))
+      (emit-eval-exp (cons 'begin prog) env))
 
     (emit 'mov 'rax 'rbx)
     (emit 'mov 1 'rax)
     (emit 'int #x80)
 
     (emit 'leave)
+
+    (emit 'section '.data)
+    (emit "heap_begin dq 0")
+    (emit "heap_cur   dq 0")
     (append func-asm main-asm)))
 
 (define (asm-nice-name name)
@@ -237,33 +239,53 @@
 (with-output-to-file "./boot.s"
 		     (lambda ()
 		       (map print-instr
-			    (compile '(begin
-					(def a b c)
-					(proc eq? (a b)
-					      (asm% xor rax rax)
-					      (asm% mov 1 rbx) ; true
-					      (asm% cmp ,a ,b)
-					      (asm% cmove rbx rax)
-					      (asm% shl 2 rax))
+			    ; TODO: proper region based memory management (linked list of marked blocks)
+			    (compile '((def a b c)
+				       (proc eq? (a b)
+					     (asm% xor rax rax)
+					     (asm% mov 1 rbx) ; true
+					     (asm% cmp ,a ,b)
+					     (asm% cmove rbx rax)
+					     (asm% shl 2 rax))
 
-					(proc alloc-block (s)
-					      (asm% mov 45 rax)
-					      (asm% syscall))
+				       (proc alloc-init ()
+					     (asm% mov 12 rax)
+					     (asm% xor rdi rdi)
+					     (asm% syscall)
+					     (asm% inc rax)
 
-					(proc putchar (c)
-					      (asm% shr 2 ,c)
-					      (asm% push ,c)
+					     (asm% mov rax "[heap_begin]")
+					     (asm% mov rax "[heap_cur]"))
 
-					      (asm% mov rsp rsi)
-					      (asm% mov 1 rax)
-					      (asm% mov 1 rdi)
-					      (asm% mov 1 rdx)
-					      (asm% syscall)
+				       (proc free ()
+					     (asm% mov "[heap_cur]" rax)
+					     (asm% sub 128 rax)
+					     (asm% mov rax "[heap_cur]"))
 
-					      (asm% pop rdi))
-					(if (eq? 1 2)
-					  (putchar 65)
-					  (putchar 66))
-					(alloc-block 2))))))
+				       (proc alloc ()
+					     (asm% mov "[heap_cur]" rax)
+					     (asm% add 128 rax)
+					     (asm% mov rax "[heap_cur]"))
+
+				       (proc putchar (c)
+					     (asm% shr 2 ,c)
+					     (asm% push ,c)
+
+					     (asm% mov rsp rsi)
+					     (asm% mov 1 rax)
+					     (asm% mov 1 rdi)
+					     (asm% mov 1 rdx)
+					     (asm% syscall)
+
+					     (asm% pop rdi))
+
+				       (alloc-init)
+
+				       (alloc)
+				       (asm% mov "DWORD 80" "[rax]")
+
+				       (if (eq? 1 2)
+					 (putchar 65)
+					 (putchar 66)))))))
 
 (system "yasm -f elf64 boot.s && ld boot.o && echo 'DONE'")
