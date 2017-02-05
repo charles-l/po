@@ -9,9 +9,6 @@
 (define fixnum-tag   #b00)
 (define fixnum-shift 2)
 
-(define null-mask #b111111)
-(define null-tag  #b101111)
-
 (define closure-mask #b111)
 (define closure-tag  #b110)
 
@@ -34,8 +31,8 @@
   (cond
     ((integer? i)
      (arithmetic-shift i fixnum-shift))
-    ((null? i)
-     null-tag)))
+    (else
+      (error "Unknown type for " i))))
 
 (define (make-env)
   (let ((stack '(())))
@@ -96,7 +93,7 @@
     i))
 
 (define (imm? e)
-  (or (integer? e) (null? e)))
+  (integer? e))
 
 ; (define (desugar))
 ; * convert define to set
@@ -129,8 +126,10 @@
 ; get the immediate rep value if it's available
 (define (emit-or-imm e env)
   (cond
-    ((imm? e) (imm-rep e))
-    ((symbol? e) (env 'lookup e))
+    ((imm? e)
+     (imm-rep e))
+    ((symbol? e)
+     (var-val (env 'lookup e)))
     (else
       (emit-eval-exp e env)
       'rax)))
@@ -153,7 +152,7 @@
 	 (('if c t e)
 	  (let ((el (gensym 'else)) (done (gensym 'done)))
 	    (emit-eval-exp c env)
-	    (emit 'cmp null-tag 'rax) ; if
+	    (emit 'cmp 0 'rax) ; if
 	    (emit 'je el)
 
 	    (emit-eval-exp t env) ; then
@@ -164,13 +163,10 @@
 
 	    (emit-label done)))
 	 (('asm% asm ...)
-	  (apply emit asm))
-	 (('export 'fun lab)
-	  (set! func-asm
-	    (append func-asm
-		    (with-emit-to-list
-		      (lambda ()
-			(emit 'global (asm-nice-name lab)))))))
+	  (apply emit (map (lambda (x)
+			     (if (and (list? x) (eq? (car x) 'unquote))
+			       (emit-or-imm (cadr x) env)
+			       x)) asm)))
 	 (('proc name (fmls ...) body ...)
 	  (let ((l (asm-nice-name name)))
 	    (set! func-asm
@@ -191,8 +187,7 @@
 	    (emit-tag closure-tag 'rax)))
 	 ((? proc-call? e)
 	  (map (lambda (e r)
-		 (emit-eval-exp e env)
-		 (emit 'mov 'rax r))
+		 (emit 'mov (emit-or-imm e env) r))
 	       (cdr e)
 	       reg-arg-order)
 	  (emit-apply-proc (car e) (cdr e)))
@@ -227,7 +222,7 @@
     (append func-asm main-asm)))
 
 (define (asm-nice-name name)
-  (string->symbol (conc "__po_" (string-translate* (->string name) '(("%", "_PERCENT"))))))
+  (string->symbol (conc "_po_" (string-translate* (->string name) '(("%" . "__PERCENT") ("-" . "__"))))))
 
 (define (print-instr i)
   (cond
@@ -244,10 +239,20 @@
 		       (map print-instr
 			    (compile '(begin
 					(def a b c)
-					(export fun putchar)
+					(proc eq? (a b)
+					      (asm% xor rax rax)
+					      (asm% mov 1 rbx) ; true
+					      (asm% cmp ,a ,b)
+					      (asm% cmove rbx rax)
+					      (asm% shl 2 rax))
+
+					(proc alloc-block (s)
+					      (asm% mov 45 rax)
+					      (asm% syscall))
+
 					(proc putchar (c)
-					      (asm% shr 2 rdi)
-					      (asm% push rdi)
+					      (asm% shr 2 ,c)
+					      (asm% push ,c)
 
 					      (asm% mov rsp rsi)
 					      (asm% mov 1 rax)
@@ -256,7 +261,9 @@
 					      (asm% syscall)
 
 					      (asm% pop rdi))
-					(set! a 65)
-					(putchar a))))))
+					(if (eq? 1 2)
+					  (putchar 65)
+					  (putchar 66))
+					(alloc-block 2))))))
 
 (system "yasm -f elf64 boot.s && ld boot.o && echo 'DONE'")
