@@ -9,9 +9,6 @@
 (define fixnum-tag   #b00)
 (define fixnum-shift 2)
 
-(define null-mask #b111111)
-(define null-tag  #b101111)
-
 (define closure-mask #b111)
 (define closure-tag  #b110)
 
@@ -34,8 +31,8 @@
   (cond
     ((integer? i)
      (arithmetic-shift i fixnum-shift))
-    ((null? i)
-     null-tag)))
+    (else
+      (error "Unknown type for " i))))
 
 (define (make-env)
   (let ((stack '(())))
@@ -90,13 +87,13 @@
 (define (deref reg off)
   (symbol-append '\[ reg '+ (string->symbol (->string off)) '\]))
 
-(define (load-var si #!optional (reg 'rax))
-  (if (number? si)
-    (emit 'mov (deref 'rbp (- (* word-size (+ 1 si)))) reg)
-    (emit 'mov si reg)))
+(define (var-val i)
+  (if (number? i)
+    (deref 'rbp (- (* word-size (+ 1 i))))
+    i))
 
 (define (imm? e)
-  (or (integer? e) (null? e)))
+  (integer? e))
 
 ; (define (desugar))
 ; * convert define to set
@@ -118,28 +115,44 @@
   (and (list? e) (> (length e) 0)))
 
 ; assumes func addr is in rax
-(define (emit-apply-proc args)
+(define (emit-apply-proc name args)
   ; TODO: check tag
-  (rem-tag closure-tag 'rax)
-  (emit 'call 'rax))
+  (emit 'call (asm-nice-name name)))
 
 (define (emit-debug-exp e)
   (emit #\; (string-take (->string e)
 		(min (string-length (->string e)) 40))))
 
+; get the immediate rep value if it's available
+(define (emit-or-imm e env)
+  (cond
+    ((imm? e)
+     (imm-rep e))
+    ((symbol? e)
+     (var-val (env 'lookup e)))
+    (else
+      (emit-eval-exp e env)
+      'rax)))
+
 (define (emit-eval-exp e env)
   (emit-debug-exp e)
   (match e
-	 (('set! var e)
-	  (env 'push var)
-	  (emit-eval-exp e env)
-	  (emit 'push 'rax))
+	 (('def var* ...)
+	  ; TODO: assert this is at the start of a function
+	  ; TODO: hoist vars
+	  (emit 'sub (* word-size (length var*)) 'rsp)
+	  (map (cut env 'push <>) var*))
+	 (('set! var val)
+	  (let ((i (env 'lookup var)))
+	    (if i
+	      (emit 'mov (emit-or-imm val env) (conc "DWORD " (var-val i)))
+	      (error "var not defined" var))))
 	 (('begin e ...)
 	  (map (cut emit-eval-exp <> env) e))
 	 (('if c t e)
 	  (let ((el (gensym 'else)) (done (gensym 'done)))
 	    (emit-eval-exp c env)
-	    (emit 'cmp null-tag 'rax) ; if
+	    (emit 'cmp 0 'rax) ; if
 	    (emit 'je el)
 
 	    (emit-eval-exp t env) ; then
@@ -149,36 +162,36 @@
 	    (emit-eval-exp e env)
 
 	    (emit-label done)))
-	 (('asm%% asm ...)
-	  (apply emit asm))
-	 (('lambda (fmls ...) body ...)
-	  (let ((label (gensym 'lambda)))
+	 (('asm% asm ...)
+	  (apply emit (map (lambda (x)
+			     (if (and (list? x) (eq? (car x) 'unquote))
+			       (emit-or-imm (cadr x) env)
+			       x)) asm)))
+	 (('proc name (fmls ...) body ...)
+	  (let ((l (asm-nice-name name)))
 	    (set! func-asm
 	      (append func-asm
 		      (with-emit-to-list
 			(lambda ()
-			  (emit-label label)
+			  (emit 'type 'function l)
+			  (emit-label l)
 			  (emit 'push 'rbp)
 			  (emit 'mov 'rsp 'rbp)
 			  (env 'new-frame)
 			  (env 'push-args fmls)
 			  (map (cut emit-eval-exp <> env) body)
-			  (emit 'pop 'rbp)
+			  (emit 'leave)
 			  (emit 'ret)
-			  (env 'pop-frame)))))
-	    (emit 'mov label 'rax)
-	    (emit-tag closure-tag 'rax)))
+			  (env 'pop-frame)))))))
 	 ((? proc-call? e)
 	  (map (lambda (e r)
-		 (emit-eval-exp e env)
-		 (emit 'mov 'rax r))
+		 (emit 'mov (emit-or-imm e env) r))
 	       (cdr e)
 	       reg-arg-order)
-	  (emit-eval-exp (car e) env)
-	  (emit-apply-proc (cdr e)))
+	  (emit-apply-proc (car e) (cdr e)))
 	 ((? symbol? e)
 	  (cond
-	    ((env 'lookup e) => load-var)
+	    ((env 'lookup e) => (lambda (x) (emit 'mov (var-val x) 'rax)))
 	    (else
 	      (error "unknown binding " e))))
 	 ((? imm? e)
@@ -197,14 +210,21 @@
     (emit 'push 'rbp)
     (emit 'mov 'rsp 'rbp)
     (let ((env (make-env)))
-      (emit-eval-exp prog env))
+      (emit-eval-exp (cons 'begin prog) env))
 
     (emit 'mov 'rax 'rbx)
     (emit 'mov 1 'rax)
     (emit 'int #x80)
 
-    (emit 'pop 'rbp)
+    (emit 'leave)
+
+    (emit 'section '.data)
+    (emit "heap_begin dq 0")
+    (emit "heap_cur   dq 0")
     (append func-asm main-asm)))
+
+(define (asm-nice-name name)
+  (string->symbol (conc "_po_" (string-translate* (->string name) '(("%" . "__PERCENT") ("-" . "__"))))))
 
 (define (print-instr i)
   (cond
@@ -216,23 +236,56 @@
     (else
       (display (car i)) (newline))))
 
-(with-output-to-file "./out.s"
+(with-output-to-file "./boot.s"
 		     (lambda ()
 		       (map print-instr
-			    (compile '(begin
-					(set! putchar%
-					  (lambda (c)
-					    ; TODO: shift down c
-					    (asm%% shr 2 rdi)
-					    (asm%% push rdi)
+			    ; TODO: proper region based memory management (linked list of marked blocks)
+			    (compile '((def a b c)
+				       (proc eq? (a b)
+					     (asm% xor rax rax)
+					     (asm% mov 1 rbx) ; true
+					     (asm% cmp ,a ,b)
+					     (asm% cmove rbx rax)
+					     (asm% shl 2 rax))
 
-					    (asm%% mov rbp rsi)
-					    (asm%% mov 1 rax)
-					    (asm%% mov 1 rdi)
-					    (asm%% mov 1 rdx)
-					    (asm%% syscall)
+				       (proc alloc-init ()
+					     (asm% mov 12 rax)
+					     (asm% xor rdi rdi)
+					     (asm% syscall)
+					     (asm% inc rax)
 
-					    (asm%% pop rdi)))
-					(putchar% 46))))))
+					     (asm% mov rax "[heap_begin]")
+					     (asm% mov rax "[heap_cur]"))
 
-(system "yasm -f elf64 out.s && ld out.o && echo 'DONE'")
+				       (proc free ()
+					     (asm% mov "[heap_cur]" rax)
+					     (asm% sub 128 rax)
+					     (asm% mov rax "[heap_cur]"))
+
+				       (proc alloc ()
+					     (asm% mov "[heap_cur]" rax)
+					     (asm% add 128 rax)
+					     (asm% mov rax "[heap_cur]"))
+
+				       (proc putchar (c)
+					     (asm% shr 2 ,c)
+					     (asm% push ,c)
+
+					     (asm% mov rsp rsi)
+					     (asm% mov 1 rax)
+					     (asm% mov 1 rdi)
+					     (asm% mov 1 rdx)
+					     (asm% syscall)
+
+					     (asm% pop rdi))
+
+				       (alloc-init)
+
+				       (alloc)
+				       (asm% mov "DWORD 80" "[rax]")
+
+				       (if (eq? 1 2)
+					 (putchar 65)
+					 (putchar 66)))))))
+
+(system "yasm -f elf64 boot.s && ld boot.o && echo 'DONE'")
