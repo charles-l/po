@@ -1,9 +1,10 @@
-(use srfi-13 srfi-69)
+(use srfi-1 srfi-13 srfi-69)
 (define *val*  'eax)
 (define *env*  'ebx)
 (define *fun*  'ecx)
 (define *t1*   'edx)
-(define word-size 4)
+(define word-size  4)
+(define short-size 2)
 
 (define num-tag  #b000)
 (define nil-tag  #b001)
@@ -13,8 +14,17 @@
 (define vec-tag  #b101)
 (define fun-tag  #b110)
 
+(define (with-index f)
+  (let ((i 0))
+    (lambda (e)
+      (set! i (add1 i))
+      (f e i))))
+
 (define (tag v tag)
   (bitwise-ior (arithmetic-shift v 3) tag))
+
+(define (tsize t e)
+  (symbol-append t e))
 
 (define (deref . e)
   (symbol-append '\[ (string->symbol (string-join (map ->string e))) '\]))
@@ -53,7 +63,7 @@
       (hash-table-set! global-vars i s)
       s)))
 
-(define (CONSTANT v)
+(define (CONST v)
   `(mov ,*val* ,(tagged-val v)))
 
 (define (GLOBAL-SET! i m)
@@ -61,9 +71,18 @@
     `(,m
        (mov ,(deref sym) ,*val*))))
 
+(define (GLOBAL-REF i)
+  `((mov ,*val* ,(deref sym))))
+
 (define (SEQUENCE m m+)
   (append (m)
           (m+)))
+
+(define (PUSH v)
+  `((push ,v)))
+
+(define (POP v)
+  `((pop ,v)))
 
 (define (FIX-LET m* m+)
   (append (m*)
@@ -127,6 +146,13 @@
   ; TODO: assert type
   `((mov ,v ,(deref v '+ (- word-size cons-tag)))))
 
+(define (CCALL f . args)
+  `(,@(append-map PUSH args)
+    (extern ,f)
+    (call ,f)
+    ,@(concatenate (make-list (length args) (POP *t1*)))
+    ))
+
 (define (ALTERNATIVE con t e)
   (let ((le (gensym 'else)) (ld (gensym 'd)))
     (append
@@ -135,6 +161,15 @@
       t (JMP ld)
       le e
       ld)))
+
+(define (STRING s)
+  `(,@(MALLOC (+ short-size (string-length s)))
+     (mov ,*t1* ,*val*)
+     (mov ,(tsize 'word (deref *t1*)) ,(string-length s))
+     ,@(map (with-index
+              (lambda (e i)
+                `(mov ,(tsize 'byte (deref *t1* '+ (+ short-size i))) ,(char->integer e))))
+            (string->list s))))
 
 (define (print-instr i)
   (cond
@@ -147,16 +182,20 @@
 (print "section .text")
 (print "global _start")
 (print "extern malloc")
-(print "extern exit")
 (print-instr "_start")
 (map print-instr
      (append
-       (GLOBAL-SET! 'a (CONSTANT 3))
-       (CONS (CONSTANT 1) (CONSTANT 2))
-       (CAR *val*)))
+       (GLOBAL-SET! 'a (CONST 45))
+       (CONS (CONST 45) (CONST 2))
+       (CAR *val*)
+       (CCALL 'putchar *val*)
+       (STRING "blahblahblah")
+       `((inc ,*val*))
+       `((inc ,*val*))
+       `((inc ,*val*))
+       (CCALL 'puts *val*)))
 
-(print-instr '(push 0))
-(print-instr '(call exit))
+(map print-instr (CCALL 'exit 0))
 
 (print "section .data")
 (for-each (lambda (l)

@@ -5,3 +5,4 @@ po
 print-atom-gdb.py
 *.s
 *_test
+core*
