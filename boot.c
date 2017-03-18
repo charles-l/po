@@ -1,12 +1,13 @@
 #include <stdio.h>
+#include "symtab.h"
+#include "types.h"
 
-typedef struct {
-    void *car; // void to ensure correct alignment
-    void *cdr;
-} cons;
+sym_table *symtab;
 
-cons *symtab;
+extern void po_entry();
 
 int main() {
-
+    sym_table t = st_create(256);
+    symtab = &t;
+    po_entry();
 }

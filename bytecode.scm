@@ -188,10 +188,10 @@
      (print (string-join (map ->string (cdr i)) ",")))))
 
 (print "section .text")
-(print "global _start")
+(print "global po_entry")
 (print "extern malloc")
 (print "extern symtab")
-(print-instr "_start")
+(print-instr "po_entry")
 (map print-instr
      (append
        ;(PUSH 2)
@@ -217,9 +217,10 @@
        ;(CCALL 'puts *val*)
 
        (VEC 3)
-       (CONST 3)
+       (CONST 46)
        (VEC-SET! 2)
        (VEC-REF 2)
+       (CCALL 'putchar *val*)
        ))
 
 (map print-instr (CCALL 'exit 0))

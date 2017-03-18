@@ -3,28 +3,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-
-#define NIL (void *) 0x1
-
-typedef struct {
-    void *car;
-    void *cdr;
-} cons;
-
-typedef struct {
-    char *key;
-    cons *vals;
-} bucket;
-
-typedef struct {
-    short size;
-    bucket *table;
-} sym_table;
-
-typedef struct lstr {
-    unsigned short n;
-    char *str;
-} lstr;
+#include "types.h"
 
 char *lstr_to_cstr(lstr *l) {
     char *c = malloc(l->n + 1);
@@ -72,13 +51,4 @@ void* st_get_or_set(sym_table *t, lstr *k) {
     n->cdr = b->vals;
     b->vals = n;
     return n->car;
-}
-
-int main() {
-    sym_table t = st_create(256);
-    lstr k = cstr_to_lstr("test");
-    printf("%p\n", st_get_or_set(&t, &k));
-    printf("%p\n", st_get_or_set(&t, &k));
-    char *x = lstr_to_cstr(st_get_or_set(&t, &k));
-    printf("%s\n", x);
 }
