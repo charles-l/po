@@ -190,6 +190,7 @@
 (print "section .text")
 (print "global _start")
 (print "extern malloc")
+(print "extern symtab")
 (print-instr "_start")
 (map print-instr
      (append
