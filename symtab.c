@@ -33,6 +33,12 @@ char *lstr_to_cstr(lstr *l) {
     return c;
 }
 
+lstr cstr_to_lstr(char *c) {
+    size_t s = strlen(c);
+    lstr l = {(short) s, strndup(c, s)};
+    return l;
+}
+
 sym_table st_create(unsigned short size) {
     sym_table t;
     t.size = size;
@@ -70,11 +76,9 @@ void* st_get_or_set(sym_table *t, lstr *k) {
 
 int main() {
     sym_table t = st_create(256);
-    lstr test_key;
-    test_key.n = 4;
-    test_key.str = strdup("asdf");
-    printf("%p\n", st_get_or_set(&t, &test_key));
-    printf("%p\n", st_get_or_set(&t, &test_key));
-    char *x = lstr_to_cstr(st_get_or_set(&t, &test_key));
+    lstr k = cstr_to_lstr("test");
+    printf("%p\n", st_get_or_set(&t, &k));
+    printf("%p\n", st_get_or_set(&t, &k));
+    char *x = lstr_to_cstr(st_get_or_set(&t, &k));
     printf("%s\n", x);
 }
