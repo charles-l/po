@@ -4,6 +4,6 @@
 #include "types.h"
 
 sym_table st_create(unsigned short size);
-void* st_get_or_set(sym_table *t, lstr *k);
+void* st_get_or_set(lstr *k);
 
 #endif // SYMTAB

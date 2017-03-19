@@ -19,8 +19,9 @@
 (define (with-index f)
   (let ((i 0))
     (lambda (e)
-      (set! i (add1 i))
-      (f e i))))
+      (let ((r (f e i)))
+        (set! i (add1 i))
+        r))))
 
 (define (tag v tag)
   (bitwise-ior (arithmetic-shift v 3) tag))
@@ -76,6 +77,11 @@
 (define (CONST v)
   `((mov ,*val* ,(reg-or-val v))))
 
+(define (SYMBOL s)
+  `(,@(STRING (symbol->string s))
+     (sub ,*val* 3) ; untag *val* so C has a real pointer
+     ,@(CCALL 'st_get_or_set *val*)))
+
 (define (GLOBAL-SET! i m)
   (let ((sym (global-ref i)))
     `(,m
@@ -85,7 +91,10 @@
   `((mov ,*val* ,(deref i))))
 
 (define (PUSH v)
-  `((push ,(reg-or-val v))))
+  (_PUSH (reg-or-val v)))
+
+(define (_PUSH v)
+  `((push ,v)))
 
 (define (POP v)
   `((pop ,v)))
@@ -141,7 +150,11 @@
   `((mov ,*val* ,(deref *val* '+ (- word-size cons-tag)))))
 
 (define (CCALL f . args)
-  `(,@(append-map PUSH args)
+  `(,@(append-map (lambda (i)
+                    (cond
+                      ((list? i) (append i (_PUSH *val*)))
+                      (else (_PUSH i))))
+                  (reverse args))
     (extern ,f)
     (call ,f)
     ,@(concatenate (make-list (length args) (POP *t1*)))
@@ -158,12 +171,13 @@
 
 (define (STRING s)
   `(,@(MALLOC (+ short-size (string-length s)))
-     (mov ,*t1* ,*val*)
-     (mov ,(tsize 'word (deref *t1*)) ,(string-length s))
+     (mov ,(tsize 'word (deref *val*)) ,(string-length s))
      ,@(map (with-index
               (lambda (e i)
-                `(mov ,(tsize 'byte (deref *t1* '+ (+ short-size i))) ,(char->integer e))))
-            (string->list s))))
+                `(mov ,(tsize 'byte (deref *val* '+ (+ short-size i)))
+                      ,(char->integer e))))
+            (string->list s))
+     (or ,*val* ,str-tag)))
 
 (define (VEC n)
   ; [n (h) | v1 (w) | v2 (w) ...]
@@ -187,6 +201,14 @@
      (display " ")
      (print (string-join (map ->string (cdr i)) ",")))))
 
+(define (FUN-PRELUDE)
+  `((push ebp)
+    (mov  ebp esp)))
+
+(define (FUN-POSTLUDE)
+  `((pop ebp)
+    (ret)))
+
 (print "section .text")
 (print "global po_entry")
 (print "extern malloc")
@@ -194,33 +216,33 @@
 (print-instr "po_entry")
 (map print-instr
      (append
-       ;(PUSH 2)
-       ;(PUSH 1)
-       ;(CONS)
-       ;(CDR)
+       (FUN-PRELUDE)
 
-       ;(GLOBAL-SET! 'a (CONST 45))
+       (SYMBOL 'blah)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
 
-       ;(PUSH '())
-       ;(PUSH 45)
-       ;(CONS)
-       ;(PUSH *val*)
-       ;(PUSH 45)
-       ;(CONS)
-       ;(CDR)
-       ;(CAR)
-       ;(CCALL 'putchar *val*)
-       ;(STRING "blahblahblah")
-       ;`((inc ,*val*))
-       ;`((inc ,*val*))
-       ;`((inc ,*val*))
-       ;(CCALL 'puts *val*)
+       (SYMBOL 'blah)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
 
-       (VEC 3)
-       (CONST 46)
-       (VEC-SET! 2)
-       (VEC-REF 2)
-       (CCALL 'putchar *val*)
+       (SYMBOL 'blah)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
+
+       (SYMBOL 'blah)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
+
+       (SYMBOL 'blah1)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
+
+       (SYMBOL 'blah1)
+       `((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " %x\n") *t1*)
+
+       (FUN-POSTLUDE)
        ))
 
 (map print-instr (CCALL 'exit 0))

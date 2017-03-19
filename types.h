@@ -6,12 +6,12 @@
 typedef struct {
     void *car;
     void *cdr;
-} cons;
+} __attribute__((packed)) cons;
 
 typedef struct lstr {
     unsigned short n;
-    char *str;
-} lstr;
+    char str[];
+} __attribute__((packed)) lstr;
 
 // sym table
 

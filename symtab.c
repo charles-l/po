@@ -1,20 +1,27 @@
-// TODO: write the rest of this
+// TODO: generalize this code a bit so it can be used for more than
+// just the sym table (i.e. allow full hash tables in the lang itself)
 #include <stdio.h>
 #include <limits.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <string.h>
-#include "types.h"
+#include "symtab.h"
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
+extern sym_table *symtab;
+
+// TODO: test that this works
 char *lstr_to_cstr(lstr *l) {
     char *c = malloc(l->n + 1);
-    memcpy(c, l->str, l->n);
+    memcpy(c, l + offsetof(lstr, str), l->n);
     c[l->n] = 0;
     return c;
 }
 
-lstr cstr_to_lstr(char *c) {
+// TODO: test that this works
+lstr *cstr_to_lstr(char *c) {
     size_t s = strlen(c);
-    lstr l = {(short) s, strndup(c, s)};
+    lstr *l = malloc(sizeof(short) + sizeof(char) * s);
     return l;
 }
 
@@ -25,24 +32,25 @@ sym_table st_create(unsigned short size) {
     return t;
 }
 
-unsigned int st_hash(sym_table *t, lstr *k) {
+unsigned int st_hash(lstr *k) {
     // djb2
     unsigned long hash = 5381;
     for(int i = 0; i < k->n; i++)
         hash = ((hash << 5) + hash) + k->str[i];
-    return hash % t->size;
+    return hash % symtab->size;
 }
 
-void* st_get_or_set(sym_table *t, lstr *k) {
-    int bin = st_hash(t, k);
-    bucket *b = &t->table[bin];
+void* st_get_or_set(lstr *k) {
+    int bin = st_hash(k);
+    bucket *b = &(symtab->table[bin]);
 
     if(b->vals == NULL) {
         b->vals = NIL;
     }
 
     for(cons *c = b->vals; c != NIL; c = c->cdr) {
-        if(strncmp((char *) c->car, k->str, k->n) == 0)
+        lstr *l = ((lstr *) c->car);
+        if(strncmp(l->str, k->str, MIN(l->n, k->n)) == 0)
             return (void *) c->car;
     }
 
