@@ -23,6 +23,9 @@
         (set! i (add1 i))
         r))))
 
+(define (logn x n)
+  (inexact->exact (/ (log x) (log n))))
+
 (define (tag v tag)
   (bitwise-ior (arithmetic-shift v 3) tag))
 
@@ -74,8 +77,11 @@
       (hash-table-set! global-vars i s)
       s)))
 
+(define (_CONST v)
+  `((mov ,*val* ,v)))
+
 (define (CONST v)
-  `((mov ,*val* ,(reg-or-val v))))
+  (_CONST (reg-or-val v)))
 
 (define (SYMBOL s)
   `(,@(STRING (symbol->string s))
@@ -152,7 +158,8 @@
 (define (CCALL f . args)
   `(,@(append-map (lambda (i)
                     (cond
-                      ((list? i) (append i (_PUSH *val*)))
+                      ((list? i)
+                       (append i (_PUSH *val*)))
                       (else (_PUSH i))))
                   (reverse args))
     (extern ,f)
@@ -185,13 +192,26 @@
      (mov ,(tsize 'word (deref *val*)) ,n)
      (or ,*val* ,vec-tag)))
 
-(define (VEC-REF i) ; *STACK[i]
+(define (VEC-REF) ; *val* = *STACK[*val*]
   ; TODO: assert that vec ref is within arr bounds
-  `((mov ,*val* ,(deref *sp* '+ (+ short-size (* i word-size))))))
+  `((shl ,*val* ,(logn word-size 2)) ; (* *val* word-size) using bitshifts :D
+    (mov ,*val* ,(deref *sp* '+ short-size '+ *val*))))
 
-(define (VEC-SET! i) ; *STACK[i] = *val*
+(define (VEC-SET!) ; *STACK[POP(STACK)] = *val*
   ; TODO: assert vec ref is within arr bounds
-  `((mov ,(deref *sp* '+ (+ short-size (* i word-size))) ,*val*)))
+  `("vset"
+    ,@(POP *t1*)
+     (shl ,*t1* ,(logn word-size 2))
+     (mov ,*t2* ,(deref *sp*))
+     (mov ,(deref *t2* '- 5 '+ *t1*) ,*val*)))
+
+(define (FUN-PROLOGUE)
+  `((push ebp)
+    (mov  ebp esp)))
+
+(define (FUN-EPILOGUE)
+  `((pop ebp)
+    (ret)))
 
 (define (print-instr i)
   (cond
@@ -201,14 +221,6 @@
      (display " ")
      (print (string-join (map ->string (cdr i)) ",")))))
 
-(define (FUN-PRELUDE)
-  `((push ebp)
-    (mov  ebp esp)))
-
-(define (FUN-POSTLUDE)
-  `((pop ebp)
-    (ret)))
-
 (print "section .text")
 (print "global po_entry")
 (print "extern malloc")
@@ -216,33 +228,29 @@
 (print-instr "po_entry")
 (map print-instr
      (append
-       (FUN-PRELUDE)
+       (FUN-PROLOGUE)
 
-       (SYMBOL 'blah)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
+       ; DIS IS ALL BORKED
+       (VEC 3)
+       (PUSH *val*)
+       (_PUSH 2)
+       (_CONST 2)
+       (VEC-SET!)
 
-       (SYMBOL 'blah)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
 
-       (SYMBOL 'blah)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
+       (_CONST 2)
+       (VEC-REF)
 
-       (SYMBOL 'blah)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
+       (POP *t1*)
 
-       (SYMBOL 'blah1)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
+       ;`((mov ,*t1* ,*val*))
+       (CCALL 'printf (STRING " hi 0x%x\n") *val*)
 
-       (SYMBOL 'blah1)
-       `((mov ,*t1* ,*val*))
-       (CCALL 'printf (STRING " %x\n") *t1*)
+       ;(SYMBOL 'blah)
+       ;`((mov ,*t1* ,*val*))
+       ;(CCALL 'printf (STRING " %x\n") *t1*)
 
-       (FUN-POSTLUDE)
+       (FUN-EPILOGUE)
        ))
 
 (map print-instr (CCALL 'exit 0))
